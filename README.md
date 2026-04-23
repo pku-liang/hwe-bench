@@ -71,7 +71,7 @@ The aggregate report lands at `results/my-first-run/eval/final_report.json`.
 - Python 3.11+
 - [uv](https://github.com/astral-sh/uv)
 - [huggingface_hub](https://pypi.org/project/huggingface-hub/) CLI (`pip install -U huggingface_hub`) for dataset download
-- Disk space: roughly <DISK_SIZE> for the full image set (ibex alone is ~<IBEX_SIZE>)
+- Disk space: roughly 200 GB for the published non-OpenTitan image set (ibex alone is ~10 GB); OpenTitan local builds require additional storage
 - Network access to `ghcr.io/pku-liang`, HuggingFace Hub, and GitHub
 
 ### Install HWE-bench
