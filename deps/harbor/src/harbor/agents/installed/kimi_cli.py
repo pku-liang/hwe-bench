@@ -8,7 +8,6 @@ from litellm.utils import get_model_info
 
 from harbor.agents.installed.base import (
     BaseInstalledAgent,
-    NonZeroAgentExitCodeError,
     with_prompt_template,
 )
 from harbor.environments.base import BaseEnvironment
@@ -170,9 +169,11 @@ class KimiCli(BaseInstalledAgent):
             )
         base_url = self._base_url or pcfg["base_url"]
         api_key = self._resolve_api_key(provider)
+        max_context_size = max(self._max_context_size, 262144)
         config: dict[str, Any] = {
             "default_model": "model",
             "default_yolo": True,
+            "default_thinking": True,
             "providers": {
                 "harbor": {
                     "type": pcfg["type"],
@@ -184,8 +185,15 @@ class KimiCli(BaseInstalledAgent):
                 "model": {
                     "provider": "harbor",
                     "model": model,
-                    "max_context_size": self._max_context_size,
+                    "max_context_size": max_context_size,
                 }
+            },
+            "loop_control": {
+                "max_steps_per_turn": 500,
+                "max_retries_per_step": 3,
+                "max_ralph_iterations": 0,
+                "reserved_context_size": 50000,
+                "compaction_trigger_ratio": 0.85,
             },
         }
         return json.dumps(config)
@@ -294,27 +302,68 @@ class KimiCli(BaseInstalledAgent):
 
         await self.exec_as_agent(environment, command=" && ".join(setup_parts), env=env)
 
-        mcp_flag = "--mcp-config-file /tmp/kimi-mcp.json " if mcp_cmd else ""
+        mcp_flag = "--mcp-config-file /tmp/kimi-mcp.json" if mcp_cmd else ""
 
-        run_command = (
-            f'export PATH="$HOME/.local/bin:$PATH"; '
-            f"(echo {escaped_prompt}; sleep 86400) | "
-            f"kimi --config-file /tmp/kimi-config.json --wire --yolo "
-            f"{mcp_flag}"
-            f"2>/dev/null | ("
-            f"while IFS= read -r line; do "
-            f'echo "$line" >> /logs/agent/{_OUTPUT_FILENAME}; '
-            'case "$line" in *\'"id":"1"\'*) break ;; esac; '
-            f"done; kill 0 2>/dev/null)"
-        )
+        run_command = f"""
+export PATH="$HOME/.local/bin:$PATH"
+tmp_dir="$(mktemp -d)"
+prompt_fifo="$tmp_dir/prompt.fifo"
+output_fifo="$tmp_dir/output.fifo"
+mkfifo "$prompt_fifo" "$output_fifo"
+cleanup() {{
+  rm -rf "$tmp_dir"
+}}
+trap cleanup EXIT
 
-        try:
-            await self.exec_as_agent(environment, command=run_command, env=env)
-        except NonZeroAgentExitCodeError as e:
-            # kill 0 terminates the process group with SIGTERM (exit 143).
-            # This is expected — the task has already completed.
-            if "exit 143" not in str(e):
-                raise
+{{
+  printf '%s\\n' {escaped_prompt}
+  exec sleep 86400
+}} >"$prompt_fifo" 2>/dev/null &
+producer_pid=$!
+
+kimi --config-file /tmp/kimi-config.json --wire --yolo {mcp_flag} \\
+  <"$prompt_fifo" >"$output_fifo" 2>/dev/null &
+kimi_pid=$!
+
+success=0
+while IFS= read -r line; do
+  echo "$line" >> /logs/agent/{_OUTPUT_FILENAME}
+  case "$line" in
+    *'"id":"1"'*)
+      case "$line" in
+        *'"status":"finished"'*)
+          success=1
+          break
+          ;;
+      esac
+      ;;
+  esac
+done <"$output_fifo"
+
+kill "$producer_pid" 2>/dev/null || true
+if [ "$success" -eq 1 ]; then
+  kill "$kimi_pid" 2>/dev/null || true
+fi
+
+wait "$producer_pid" 2>/dev/null || true
+wait "$kimi_pid"
+kimi_status=$?
+
+if [ "$success" -eq 1 ]; then
+  case "$kimi_status" in
+    0|143) exit 0 ;;
+    *) exit "$kimi_status" ;;
+  esac
+fi
+
+if [ "$kimi_status" -eq 0 ]; then
+  exit 1
+fi
+
+exit "$kimi_status"
+""".strip()
+
+        await self.exec_as_agent(environment, command=run_command, env=env)
 
     def _parse_wire_events(self) -> list[dict[str, Any]]:
         """Parse wire protocol JSONL, handling unescaped control characters

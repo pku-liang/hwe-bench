@@ -372,7 +372,10 @@ class TestCreateRunCommands:
         assert "--wire" in run_cmd
         assert "--yolo" in run_cmd
         assert "solve the task" in run_cmd
-        assert "kill 0" in run_cmd
+        assert 'mkfifo "$prompt_fifo" "$output_fifo"' in run_cmd
+        assert 'wait "$kimi_pid"' in run_cmd
+        assert '"status":"finished"' in run_cmd
+        assert "kill 0" not in run_cmd
 
     @pytest.mark.asyncio
     async def test_rejects_invalid_model_format(self, tmp_path: Path):

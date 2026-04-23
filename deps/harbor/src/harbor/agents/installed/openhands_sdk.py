@@ -96,14 +96,12 @@ class OpenHandsSDK(BaseInstalledAgent):
         already_installed = check_result.return_code == 0
 
         if not already_installed:
-            # Install python3-venv if needed (root)
+            # Install curl so we can bootstrap uv.
             await self.exec_as_root(
                 environment,
                 command=(
                     "mkdir -p /opt && "
-                    'if ! python3 -c "import ensurepip" 2>/dev/null; then'
-                    "  apt-get update -qq && apt-get install -y python3-venv;"
-                    " fi"
+                    "apt-get update -qq && apt-get install -y curl"
                 ),
                 env={"DEBIAN_FRONTEND": "noninteractive"},
             )
@@ -117,14 +115,20 @@ class OpenHandsSDK(BaseInstalledAgent):
             version_spec = f"=={self._version}" if self._version else ""
             await self.exec_as_agent(
                 environment,
-                command=(
-                    "set -euo pipefail; "
-                    "python3 -m venv /opt/openhands-sdk-venv && "
-                    "source /opt/openhands-sdk-venv/bin/activate && "
-                    "export PIP_DEFAULT_TIMEOUT=120 && "
-                    "pip install --upgrade pip || true && "
-                    f"pip install openhands-sdk{version_spec} openhands-tools{version_spec} fastapi"
-                ),
+                command=f"""
+set -euo pipefail
+if ! command -v uv >/dev/null 2>&1; then
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+fi
+if [ -f "$HOME/.local/bin/env" ]; then
+  . "$HOME/.local/bin/env"
+fi
+uv python install 3.12
+uv venv /opt/openhands-sdk-venv --python 3.12
+VENV_PYTHON="/opt/openhands-sdk-venv/bin/python"
+export PIP_DEFAULT_TIMEOUT=120
+uv pip install --python "$VENV_PYTHON" openhands-sdk{version_spec} openhands-tools{version_spec} fastapi
+""".strip(),
             )
 
         # Upload runner script
