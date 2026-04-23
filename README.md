@@ -133,8 +133,7 @@ Set environment variables for the agents you plan to evaluate:
 | Claude Code | `CLAUDE_CODE_OAUTH_TOKEN` | Also pass `--ae ANTHROPIC_API_KEY=` to clear any host-side API key |
 | Codex CLI | `CODEX_AUTH_JSON_PATH` | Host path to `~/.codex/auth.json`; Harbor uploads it into the container |
 | Kimi CLI | `KIMI_API_KEY` | Format `sk-kimi-...` (not `MOONSHOT_API_KEY`) |
-| OpenHands SDK | `LLM_API_KEY` | Provider-specific, passed through to LiteLLM |
-| OpenHands SDK (Qwen 3.6 Plus) | `LLM_API_KEY` | Set from `DASHSCOPE_API_KEY`; see [docs/agents.md](docs/agents.md) for endpoint details |
+| OpenHands SDK | `LLM_API_KEY` | Provider-specific, passed through to LiteLLM see [docs/agents.md](docs/agents.md) for endpoint details |
 
 Agent-specific command templates and provider notes are documented in [docs/agents.md](docs/agents.md).
 
