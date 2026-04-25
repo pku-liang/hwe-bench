@@ -10,6 +10,7 @@ Methodology, design decisions, and detailed analysis are described in the accomp
 
 ## Contents
 
+- [News](#news)
 - [Quick Start](#quick-start)
 - [Installation](#installation)
 - [Running an Evaluation](#running-an-evaluation)
@@ -17,6 +18,10 @@ Methodology, design decisions, and detailed analysis are described in the accomp
 - [Adding a New Repository](#adding-a-new-repository)
 - [Repository Layout](#repository-layout)
 - [Citation](#citation)
+
+## News
+
+- **2026-04-26:** Updated the reference results with three new model scores: Kimi K2.6 at 66.9%, DeepSeek V4 Pro at 60.6%, and DeepSeek V4 Flash at 58.3%. Kimi K2.6 was evaluated with Kimi CLI; both DeepSeek V4 models were evaluated with Claude Code using a 1M context window and max thinking effort.
 
 ## Quick Start
 
