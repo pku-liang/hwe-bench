@@ -10,6 +10,7 @@ Methodology, design decisions, and detailed analysis are described in the accomp
 
 ## 📰 News
 
+- **2026-04-30:** Added two new reference scores to the [results figure](#results): GPT-5.5 xhigh at 79.4% and Claude Opus 4.7 max at 74.6%.
 - **2026-04-26:** Updated the reference results with three new model scores in the [results figure](#results): Kimi K2.6 at 66.9%, DeepSeek V4 Pro at 60.6%, and DeepSeek V4 Flash at 58.3%. Kimi K2.6 was evaluated with Kimi CLI; both DeepSeek V4 models were evaluated with Claude Code using a 1M context window and max thinking effort.
 
 ## Contents
