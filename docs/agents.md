@@ -45,10 +45,13 @@ export CODEX_AUTH_JSON_PATH=~/.codex/auth.json
 harbor run --path tasks/hwe-bench-<repo>/ \
   -a codex -m openai/gpt-5.4 \
   --ak reasoning_effort=xhigh \
+  --ak web_search=disabled \
   -k 1 -r 2 --n-concurrent 4 --no-delete \
   --agent-setup-timeout-multiplier 2.0 \
   --job-name hwe-<repo>-codex
 ```
+
+The adapter defaults to `web_search=disabled`; keep it disabled for benchmark reporting. Task ids contain the upstream repository and PR number, so web access could let the agent retrieve the original fix.
 
 Codex also accepts an OpenAI API key via `OPENAI_API_KEY` for pay-as-you-go billing. The model identifier must be passed explicitly; there is no default. 
 
@@ -72,7 +75,7 @@ harbor run --path tasks/hwe-bench-<repo>/ \
   --job-name hwe-<repo>-claude
 ```
 
-Disallowing `WebSearch` and `WebFetch` is a leakage precaution: it stops the agent from looking up the upstream fix commit on GitHub. Raising `CLAUDE_CODE_MAX_OUTPUT_TOKENS` from the default 64k to 128k avoids thinking-loop truncation on longer multi-file edits. Swap the model identifier to `anthropic/claude-opus-4-6` for Opus runs; the remaining flags carry over.
+Disallowing `WebSearch` and `WebFetch` is the Claude-side equivalent of the Codex `web_search=disabled` setting. Raising `CLAUDE_CODE_MAX_OUTPUT_TOKENS` from the default 64k to 128k avoids thinking-loop truncation on longer multi-file edits. Swap the model identifier to `anthropic/claude-opus-4-6` for Opus runs; the remaining flags carry over.
 
 ### Kimi CLI (Moonshot)
 

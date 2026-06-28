@@ -46,7 +46,9 @@ uv run python -m hwe_bench.harness.harbor.adapter \
 # 4. Run the agent
 export CODEX_AUTH_JSON_PATH=~/.codex/auth.json
 harbor run --path tasks/hwe-bench-ibex/ \
-  -a codex -m openai/gpt-5.4 --ak reasoning_effort=xhigh \
+  -a codex -m openai/gpt-5.4 \
+  --ak reasoning_effort=xhigh \
+  --ak web_search=disabled \
   -k 1 -r 2 --n-concurrent 4 --no-delete \
   --agent-setup-timeout-multiplier 2.0 \
   --job-name my-first-run
@@ -160,12 +162,15 @@ Re-run the adapter whenever per-PR Docker images are rebuilt; task `test.sh` fil
 ### 2. Run the agent
 
 `--no-delete` is **mandatory**. Without it Harbor deletes per-PR images between retries, breaking subsequent attempts.
+Codex commands keep `web_search=disabled` so agents do not look up the upstream PR or patch during benchmark runs.
 
 ```bash
 # Codex CLI
 export CODEX_AUTH_JSON_PATH=~/.codex/auth.json
 harbor run --path tasks/hwe-bench-<repo>/ \
-  -a codex -m openai/gpt-5.4 --ak reasoning_effort=xhigh \
+  -a codex -m openai/gpt-5.4 \
+  --ak reasoning_effort=xhigh \
+  --ak web_search=disabled \
   -k 1 -r 2 --n-concurrent 4 --no-delete \
   --agent-setup-timeout-multiplier 2.0 \
   --job-name hwe-<repo>-codex

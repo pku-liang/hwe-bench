@@ -48,6 +48,14 @@ class Codex(BaseInstalledAgent):
             choices=["auto", "concise", "detailed", "none"],
             format="-c model_reasoning_summary={value}",
         ),
+        CliFlag(
+            "web_search",
+            cli="-c",
+            type="enum",
+            choices=["disabled", "cached", "live"],
+            default="disabled",
+            format="-c web_search={value}",
+        ),
     ]
 
     @staticmethod
@@ -694,6 +702,7 @@ class Codex(BaseInstalledAgent):
                 command=setup_command,
                 env=env,
             )
+        output_path = EnvironmentPaths.agent_dir / self._OUTPUT_FILENAME
         try:
             await self.exec_as_agent(
                 environment,
@@ -708,9 +717,7 @@ class Codex(BaseInstalledAgent):
                     f"{cli_flags_arg}"
                     "-- "  # end of flags
                     f"{escaped_instruction} "
-                    f"2>&1 </dev/null | tee {
-                        EnvironmentPaths.agent_dir / self._OUTPUT_FILENAME
-                    }"
+                    f"2>&1 </dev/null | tee {output_path}"
                 ),
                 env=env,
             )
