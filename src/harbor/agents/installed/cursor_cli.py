@@ -1,15 +1,23 @@
 import json
 import os
+import re
 import shlex
 from datetime import datetime, timezone
-from typing import Annotated, Any, Literal, Union
+from typing import Annotated, Any, Literal, override
 
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    RootModel,
+    TypeAdapter,
+    ValidationError,
+)
 
 from harbor.agents.installed.base import (
     BaseInstalledAgent,
-    with_prompt_template,
     CliFlag,
+    with_prompt_template,
 )
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
@@ -24,6 +32,12 @@ from harbor.models.trajectories import (
     Trajectory,
 )
 from harbor.utils.trajectory_utils import format_trajectory_json
+
+_ReasoningEffort = Literal["low", "medium", "high", "xhigh", "max"]
+_REASONING_EFFORT_CHOICES = frozenset(("low", "medium", "high", "xhigh", "max"))
+# Cursor parameterized models: base[k=v,...] (no nested brackets).
+_MODEL_BRACKET_RE = re.compile(r"^(?P<base>.+)\[(?P<params>[^\[\]]*)\]$")
+_EFFORT_PARAM_RE = re.compile(r"(?:^|,)\s*effort=")
 
 
 class CursorSystemEvent(BaseModel):
@@ -83,6 +97,56 @@ class CursorUsage(BaseModel):
     outputTokens: int
     cacheReadTokens: int
     cacheWriteTokens: int
+    totalCost: float | None = None
+    cost: float | None = None
+
+    def reported_cost_usd(self) -> float | None:
+        """Return authoritative USD cost when the CLI includes it on usage."""
+        if self.totalCost is not None:
+            return self.totalCost
+        if self.cost is not None:
+            return self.cost
+        return None
+
+
+class CursorTokenPricing(BaseModel):
+    """Per-million-token USD rates for cost estimation.
+
+    Pass via ``--ak pricing='...'`` or ``agents[].kwargs.pricing``.
+    ``cache_read`` / ``cache_write`` default to ``input`` when omitted.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    input: float = Field(ge=0, description="USD per 1M input tokens")
+    output: float = Field(ge=0, description="USD per 1M output tokens")
+    cache_read: float | None = Field(
+        default=None, ge=0, description="USD per 1M cache-read tokens"
+    )
+    cache_write: float | None = Field(
+        default=None, ge=0, description="USD per 1M cache-write tokens"
+    )
+
+    def per_million_rates(self) -> dict[str, float]:
+        input_rate = self.input
+        return {
+            "input": input_rate,
+            "output": self.output,
+            "cache_read": (
+                self.cache_read if self.cache_read is not None else input_rate
+            ),
+            "cache_write": (
+                self.cache_write if self.cache_write is not None else input_rate
+            ),
+        }
+
+
+class CursorModelPricingMap(RootModel[dict[str, CursorTokenPricing]]):
+    """Model-slug → per-million USD rates map for the ``pricing`` kwarg."""
+
+
+# Flat rates for the current model, or a model-slug → rates map.
+CursorPricingOverride = CursorTokenPricing | CursorModelPricingMap
 
 
 class CursorResult(BaseModel):
@@ -97,16 +161,25 @@ class CursorResult(BaseModel):
     request_id: str | None = None
 
 
+class CursorInteractionQuery(BaseModel):
+    type: Literal["interaction_query"]
+    subtype: str | None = None
+    query_type: str | None = None
+    session_id: str
+    timestamp_ms: int | None = None
+    query: dict[str, Any] | None = None
+    response: dict[str, Any] | None = None
+
+
 Event = TypeAdapter(
     Annotated[
-        Union[
-            CursorSystemEvent,
-            CursorUserMessage,
-            CursorAssistantMessage,
-            CursorThinkingBlock,
-            CursorToolCall,
-            CursorResult,
-        ],
+        CursorSystemEvent
+        | CursorUserMessage
+        | CursorAssistantMessage
+        | CursorThinkingBlock
+        | CursorToolCall
+        | CursorResult
+        | CursorInteractionQuery,
         Field(discriminator="type"),
     ]
 )
@@ -127,12 +200,68 @@ class CursorCli(BaseInstalledAgent):
         assistant     - assistant message
         thinking      - model thinking block (subtypes: delta, completed)
         tool_call     - tool call (subtypes: started, completed)
+        interaction_query - permission-prompt request/response events
         result        - final result / completion (errors indicated via is_error)
     """
 
     SUPPORTS_ATIF: bool = True
 
     _OUTPUT_FILENAME = "cursor-cli.txt"
+
+    # Per-million-token USD rates from https://cursor.com/docs/models-and-pricing
+    # (API pool table for Composer; Auto pool for auto). Converted to per-token below.
+    _CURSOR_PRICING_PER_MILLION: dict[str, dict[str, float]] = {
+        "composer-2.5": {
+            "input": 0.5,
+            "output": 2.5,
+            "cache_read": 0.2,
+            "cache_write": 0.5,
+        },
+        "composer-2": {
+            "input": 0.5,
+            "output": 2.5,
+            "cache_read": 0.2,
+            "cache_write": 0.5,
+        },
+        "composer-2-fast": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.6,
+            "cache_write": 3.0,
+        },
+        "composer-1.5": {
+            "input": 3.5,
+            "output": 17.5,
+            "cache_read": 0.35,
+            "cache_write": 3.5,
+        },
+        "composer-1": {
+            "input": 1.25,
+            "output": 10.0,
+            "cache_read": 0.125,
+            "cache_write": 1.25,
+        },
+        "auto": {
+            "input": 1.25,
+            "output": 6.0,
+            "cache_read": 0.25,
+            "cache_write": 1.25,
+        },
+        "grok-4.5": {
+            "input": 2.0,
+            "output": 6.0,
+            "cache_read": 0.5,
+            "cache_write": 2.0,
+        },
+    }
+    _CURSOR_MODEL_ALIASES: dict[str, str] = {
+        "composer-2-5": "composer-2.5",
+        "composer2.5": "composer-2.5",
+        "composer2": "composer-2",
+        "composer-2-fast-mode": "composer-2-fast",
+        "grok-4-5": "grok-4.5",
+        "grok4.5": "grok-4.5",
+    }
 
     CLI_FLAGS = [
         CliFlag(
@@ -143,17 +272,85 @@ class CursorCli(BaseInstalledAgent):
         ),
     ]
 
+    def __init__(
+        self,
+        *args,
+        pricing: dict[str, Any] | CursorPricingOverride | None = None,
+        reasoning_effort: _ReasoningEffort | None = None,
+        **kwargs,
+    ):
+        self._reasoning_effort = reasoning_effort
+        super().__init__(*args, **kwargs)
+        self._validate_reasoning_effort(self._reasoning_effort)
+        # Optional per-million USD rates via --ak pricing='...' / agents[].kwargs.pricing.
+        # Flat rates apply to the current model; a model→rates map overrides by slug.
+        self._pricing_override = self._parse_pricing_override(pricing)
+
     @staticmethod
+    def _validate_reasoning_effort(reasoning_effort: _ReasoningEffort | None) -> None:
+        if (
+            reasoning_effort is not None
+            and reasoning_effort not in _REASONING_EFFORT_CHOICES
+        ):
+            raise ValueError(
+                f"Invalid value for 'reasoning_effort': '{reasoning_effort}'. "
+                f"Valid values: {', '.join(sorted(_REASONING_EFFORT_CHOICES))}"
+            )
+
+    def _model_arg(self) -> str:
+        """Return the cursor-agent --model value, with optional effort override.
+
+        Cursor CLI accepts parameterized models as
+        ``base[effort=high]`` / ``base[context=1m,effort=high]``.
+        """
+        if not self.model_name or "/" not in self.model_name:
+            raise ValueError("Model name must be in the format provider/model_name")
+
+        model = self.model_name.split("/", 1)[-1]
+        effort = self._reasoning_effort
+        if effort is None:
+            return model
+
+        match = _MODEL_BRACKET_RE.fullmatch(model)
+        if match is not None:
+            params = match.group("params")
+            if _EFFORT_PARAM_RE.search(params):
+                raise ValueError(
+                    f"Model '{model}' already sets effort=...; omit reasoning_effort "
+                    "or remove the effort override from the model name"
+                )
+            # Merge into existing bracket params: base[a=b] -> base[a=b,effort=X]
+            merged = (
+                f"{params},effort={effort}" if params.strip() else f"effort={effort}"
+            )
+            return f"{match.group('base')}[{merged}]"
+        return f"{model}[effort={effort}]"
+
+    @staticmethod
+    @override
     def name() -> str:
         return AgentName.CURSOR_CLI.value
 
+    @override
     def get_version_command(self) -> str | None:
         return 'export PATH="$HOME/.local/bin:$PATH"; cursor-agent --version'
 
+    @override
     async def install(self, environment: BaseEnvironment) -> None:
+        # Alpine needs bash for the install script; apt/yum images usually ship it.
         await self.exec_as_root(
             environment,
-            command="apt-get update && apt-get install -y curl",
+            command=(
+                "if command -v apk &> /dev/null; then"
+                "  apk add --no-cache curl bash;"
+                " elif command -v apt-get &> /dev/null; then"
+                "  apt-get update && apt-get install -y curl;"
+                " elif command -v yum &> /dev/null; then"
+                "  yum install -y curl;"
+                " else"
+                '  echo "Warning: No known package manager found, assuming curl is available" >&2;'
+                " fi"
+            ),
             env={"DEBIAN_FRONTEND": "noninteractive"},
         )
         await self.exec_as_agent(
@@ -165,6 +362,9 @@ class CursorCli(BaseInstalledAgent):
                 "cursor-agent --version"
             ),
         )
+        skills_command = self._build_register_skills_command()
+        if skills_command:
+            await self.exec_as_agent(environment, command=skills_command)
 
     def _parse_stdout(self) -> list[dict[str, Any]]:
         """Read and parse JSON lines from the cursor-cli stdout file."""
@@ -183,8 +383,8 @@ class CursorCli(BaseInstalledAgent):
                 continue
         return events
 
-    @staticmethod
     def _build_agent_step(
+        self,
         event: CursorAssistantMessage,
         step_id: int,
         thinking: list[CursorThinkingBlock],
@@ -197,17 +397,27 @@ class CursorCli(BaseInstalledAgent):
             if event.timestamp_ms is not None
             else None
         )
-        reasoning_content = "".join(content.text or "" for content in thinking).strip()
+        reasoning_content = self._drain_thinking(thinking)
         return Step(
             step_id=step_id,
             timestamp=timestamp,
             source="agent",
+            model_name=self.model_name,
             message="".join(content.text for content in event.message.content).strip(),
-            reasoning_content=reasoning_content or None,
+            reasoning_content=reasoning_content,
+            llm_call_count=1,
         )
 
     @staticmethod
-    def _apply_result_event(event: CursorResult, final_metrics: FinalMetrics) -> None:
+    def _drain_thinking(thinking: list[CursorThinkingBlock]) -> str | None:
+        """Join and clear accumulated thinking blocks (strict reasoning separation)."""
+        reasoning = "".join(content.text or "" for content in thinking).strip()
+        thinking.clear()
+        return reasoning or None
+
+    def _apply_result_event(
+        self, event: CursorResult, final_metrics: FinalMetrics
+    ) -> None:
         """Accumulate final metrics from result events (multiple per session)."""
         extra: dict[str, Any] = dict(final_metrics.extra or {})
         extra["duration_ms"] = extra.get("duration_ms", 0) + event.duration_ms
@@ -216,8 +426,24 @@ class CursorCli(BaseInstalledAgent):
         )
         if event.request_id is not None:
             extra["request_id"] = event.request_id
-        final_metrics.extra = extra
         if event.usage is not None:
+            usage_totals: dict[str, int] = dict(
+                extra.get(
+                    "usage_totals",
+                    {
+                        "inputTokens": 0,
+                        "outputTokens": 0,
+                        "cacheReadTokens": 0,
+                        "cacheWriteTokens": 0,
+                    },
+                )
+            )
+            usage_totals["inputTokens"] += event.usage.inputTokens
+            usage_totals["outputTokens"] += event.usage.outputTokens
+            usage_totals["cacheReadTokens"] += event.usage.cacheReadTokens
+            usage_totals["cacheWriteTokens"] += event.usage.cacheWriteTokens
+            extra["usage_totals"] = usage_totals
+
             final_metrics.total_prompt_tokens = (
                 (final_metrics.total_prompt_tokens or 0)
                 + event.usage.inputTokens
@@ -230,6 +456,198 @@ class CursorCli(BaseInstalledAgent):
             final_metrics.total_cached_tokens = (
                 final_metrics.total_cached_tokens or 0
             ) + event.usage.cacheReadTokens
+
+            reported_cost = event.usage.reported_cost_usd()
+            if reported_cost is not None:
+                final_metrics.total_cost_usd = (
+                    final_metrics.total_cost_usd or 0.0
+                ) + reported_cost
+                extra["cost_source"] = "cursor_cli"
+        final_metrics.extra = extra
+
+    @classmethod
+    def _model_slug(cls, model_name: str) -> str:
+        slug = model_name.split("/", 1)[-1].lower()
+        return cls._CURSOR_MODEL_ALIASES.get(slug, slug)
+
+    @classmethod
+    def _per_million_to_per_token(cls, rates: dict[str, float]) -> dict[str, float]:
+        return {key: value / 1_000_000 for key, value in rates.items()}
+
+    @classmethod
+    def _cursor_builtin_pricing(cls, model_name: str) -> dict[str, float] | None:
+        """Return per-token rates for known Cursor/Composer models, if any."""
+        rates = cls._CURSOR_PRICING_PER_MILLION.get(cls._model_slug(model_name))
+        if rates is None:
+            return None
+        return cls._per_million_to_per_token(rates)
+
+    @classmethod
+    def _parse_pricing_override(
+        cls, pricing: dict[str, Any] | CursorPricingOverride | None
+    ) -> CursorPricingOverride | None:
+        """Validate the ``pricing`` kwarg with Pydantic and normalize model keys.
+
+        Accepts:
+        - Flat rates for the current model:
+          ``{"input": 2, "output": 6, "cache_read": 0.5, "cache_write": 2}``
+        - A model-slug → rates map:
+          ``{"grok-4.5": {"input": 2, "output": 6}, "new-model": {...}}``
+        """
+        if pricing is None:
+            return None
+        if isinstance(pricing, (CursorTokenPricing, CursorModelPricingMap)):
+            parsed = pricing
+        else:
+            # Prefer flat rates when any known rate key is present so a typo like
+            # ``{"input": 1}`` fails as incomplete rates instead of a model map.
+            if isinstance(pricing, dict) and (
+                {"input", "output", "cache_read", "cache_write"} & set(pricing)
+            ):
+                try:
+                    return CursorTokenPricing.model_validate(pricing)
+                except ValidationError as exc:
+                    raise ValueError(
+                        "Invalid pricing: expected per-million USD rates with "
+                        f"'input' and 'output' (optional cache_read/cache_write). {exc}"
+                    ) from exc
+            try:
+                parsed = CursorModelPricingMap.model_validate(pricing)
+            except ValidationError as exc:
+                raise ValueError(
+                    "Invalid pricing: expected per-million USD rates "
+                    "({'input': ..., 'output': ..., ...}) or a model → rates map. "
+                    f"{exc}"
+                ) from exc
+
+        if isinstance(parsed, CursorTokenPricing):
+            return parsed
+
+        if not parsed.root:
+            raise ValueError("Invalid pricing: expected a non-empty model → rates map")
+        return CursorModelPricingMap(
+            {
+                cls._model_slug(model_key): rates
+                for model_key, rates in parsed.root.items()
+            }
+        )
+
+    def _pricing_override_for_model(self, model_name: str) -> dict[str, float] | None:
+        """Return per-token rates from the user ``pricing`` kwarg, if any."""
+        override = self._pricing_override
+        if override is None:
+            return None
+        if isinstance(override, CursorTokenPricing):
+            return self._per_million_to_per_token(override.per_million_rates())
+        rates = override.root.get(self._model_slug(model_name))
+        if rates is None:
+            return None
+        return self._per_million_to_per_token(rates.per_million_rates())
+
+    @staticmethod
+    def _cost_from_token_rates(
+        usage_totals: dict[str, int], rates: dict[str, float]
+    ) -> float:
+        input_rate = rates["input"]
+        output_rate = rates["output"]
+        cache_read_rate = rates.get("cache_read", input_rate)
+        cache_write_rate = rates.get("cache_write", input_rate)
+        return (
+            usage_totals.get("inputTokens", 0) * input_rate
+            + usage_totals.get("cacheReadTokens", 0) * cache_read_rate
+            + usage_totals.get("cacheWriteTokens", 0) * cache_write_rate
+            + usage_totals.get("outputTokens", 0) * output_rate
+        )
+
+    def _resolve_pricing_rates(self) -> tuple[dict[str, float], str] | None:
+        """Resolve per-token rates: user override, built-in Cursor, then LiteLLM."""
+        if not self.model_name:
+            return None
+
+        override = self._pricing_override_for_model(self.model_name)
+        if override is not None:
+            return override, "user_pricing"
+
+        builtin = self._cursor_builtin_pricing(self.model_name)
+        if builtin is not None:
+            return builtin, "cursor_pricing"
+
+        try:
+            import litellm
+        except ImportError:
+            self.logger.debug(
+                "litellm not available and no built-in pricing for model '%s'; "
+                "leaving cursor-cli cost_usd as None",
+                self.model_name,
+            )
+            return None
+
+        pricing: dict[str, Any] | None = None
+        for key in (self.model_name, self.model_name.split("/", 1)[-1]):
+            entry = litellm.model_cost.get(key)
+            if entry:
+                pricing = entry
+                break
+
+        if pricing is None:
+            self.logger.debug(
+                "No pricing entry for model '%s'; leaving cursor-cli cost_usd as None",
+                self.model_name,
+            )
+            return None
+
+        input_rate = pricing.get("input_cost_per_token") or 0.0
+        output_rate = pricing.get("output_cost_per_token") or 0.0
+        cache_read_rate = pricing.get("cache_read_input_token_cost", input_rate)
+        if cache_read_rate is None:
+            cache_read_rate = input_rate
+        cache_write_rate = pricing.get("cache_creation_input_token_cost", input_rate)
+        if cache_write_rate is None:
+            cache_write_rate = input_rate
+
+        return (
+            {
+                "input": input_rate,
+                "output": output_rate,
+                "cache_read": cache_read_rate,
+                "cache_write": cache_write_rate,
+            },
+            "litellm",
+        )
+
+    def _compute_cost_from_usage_totals(
+        self, usage_totals: dict[str, int]
+    ) -> tuple[float, str] | None:
+        """Estimate USD cost from token usage when the CLI omits dollar cost.
+
+        Prefers user ``pricing`` override, then built-in Cursor/Composer rates,
+        then LiteLLM. Returns None rather than $0 when pricing is unavailable.
+        """
+        resolved = self._resolve_pricing_rates()
+        if resolved is None:
+            return None
+        rates, source = resolved
+        return self._cost_from_token_rates(usage_totals, rates), source
+
+    def _finalize_cost_metrics(self, final_metrics: FinalMetrics) -> None:
+        """Fill total_cost_usd from token usage when the CLI did not report cost."""
+        if final_metrics.total_cost_usd is not None:
+            return
+
+        extra = final_metrics.extra or {}
+        usage_totals = extra.get("usage_totals")
+        if not isinstance(usage_totals, dict):
+            return
+
+        estimated = self._compute_cost_from_usage_totals(usage_totals)
+        if estimated is None:
+            return
+
+        cost, source = estimated
+        final_metrics.total_cost_usd = cost
+        extra = dict(extra)
+        extra["cost_source"] = source
+        final_metrics.extra = extra
 
     @staticmethod
     def _normalize_tool_result_content(result: Any) -> str | None:
@@ -265,7 +683,7 @@ class CursorCli(BaseInstalledAgent):
                     arguments=args,
                 )
             )
-            step.observation.results.append(  # type: ignore[union-attr]
+            step.observation.results.append(  # ty: ignore[unresolved-attribute]
                 ObservationResult(
                     source_call_id=event.call_id,
                     content=CursorCli._normalize_tool_result_content(
@@ -285,7 +703,15 @@ class CursorCli(BaseInstalledAgent):
         thinking: list[CursorThinkingBlock] = []
 
         for event_dict in events:
-            event = Event.validate_python(event_dict)
+            try:
+                event = Event.validate_python(event_dict)
+            except ValidationError as exc:
+                self.logger.debug(
+                    "Skipping unsupported cursor-cli event type %r: %s",
+                    event_dict.get("type"),
+                    exc,
+                )
+                continue
             # Use match statement to handle the different event types
             match event:
                 case CursorSystemEvent():
@@ -303,7 +729,6 @@ class CursorCli(BaseInstalledAgent):
                     step_id += 1
                 case CursorAssistantMessage():
                     step = self._build_agent_step(event, step_id, thinking)
-                    thinking = []
                     steps.append(step)
                     step_id += 1
                     if event.model_call_id is not None:
@@ -315,21 +740,63 @@ class CursorCli(BaseInstalledAgent):
                 case CursorToolCall():
                     step = call_id_map.get(event.model_call_id)
                     if step is None:
-                        # Tool call with no preceding assistant message — create an implicit agent step.
-                        step = Step(step_id=step_id, source="agent", message="")
+                        # Tool call with no preceding assistant message — create an
+                        # implicit agent step for its API turn (one step per turn).
+                        step = Step(
+                            step_id=step_id,
+                            timestamp=datetime.fromtimestamp(
+                                event.timestamp_ms / 1000, tz=timezone.utc
+                            ).isoformat(),
+                            source="agent",
+                            model_name=self.model_name,
+                            message="",
+                            reasoning_content=self._drain_thinking(thinking),
+                            llm_call_count=1,
+                        )
                         steps.append(step)
                         step_id += 1
                         call_id_map[event.model_call_id] = step
+                    elif thinking:
+                        # Thinking that streamed after the assistant message but
+                        # before its tool calls belongs to the same API turn.
+                        reasoning_content = self._drain_thinking(thinking)
+                        if reasoning_content:
+                            step.reasoning_content = (
+                                f"{step.reasoning_content}\n\n{reasoning_content}"
+                                if step.reasoning_content
+                                else reasoning_content
+                            )
                     self._apply_tool_call_event(event, step)
                 case CursorResult():
                     self._apply_result_event(event, final_metrics)
+                case CursorInteractionQuery():
+                    continue
                 case _:
                     raise ValueError(f"Unsupported event type: {event.type}")
 
+        # Trailing thinking with no following assistant message still
+        # represents an inference — keep it instead of dropping it. Gate on the
+        # drained content, not the list: a whitespace-only delta passes the
+        # `event.text` filter but must not yield an empty agent step.
+        trailing_reasoning = self._drain_thinking(thinking)
+        if trailing_reasoning:
+            steps.append(
+                Step(
+                    step_id=step_id,
+                    source="agent",
+                    model_name=self.model_name,
+                    message="",
+                    reasoning_content=trailing_reasoning,
+                    llm_call_count=1,
+                )
+            )
+            step_id += 1
+
+        self._finalize_cost_metrics(final_metrics)
         final_metrics.total_steps = len(steps)
 
         return Trajectory(
-            schema_version="ATIF-v1.6",
+            schema_version="ATIF-v1.7",
             session_id=session_id or "unknown",
             agent=Agent(
                 name="cursor-cli",
@@ -340,6 +807,7 @@ class CursorCli(BaseInstalledAgent):
             final_metrics=final_metrics,
         )
 
+    @override
     def populate_context_post_run(self, context: AgentContext) -> None:
         events = self._parse_stdout()
         if not events:
@@ -383,6 +851,18 @@ class CursorCli(BaseInstalledAgent):
         escaped = shlex.quote(config)
         return f"mkdir -p ~/.cursor && echo {escaped} > ~/.cursor/mcp.json"
 
+    def _build_register_skills_command(self) -> str | None:
+        """Return a shell command that copies Harbor skills to Cursor's skills dir."""
+        if not self.skills_dir:
+            return None
+        skills_dir = shlex.quote(self.skills_dir)
+        return (
+            f"if [ -d {skills_dir} ]; then "
+            "mkdir -p ~/.cursor/skills && "
+            f"cp -r {skills_dir}/* ~/.cursor/skills/ 2>/dev/null || true; "
+            "fi"
+        )
+
     @with_prompt_template
     async def run(
         self,
@@ -391,11 +871,7 @@ class CursorCli(BaseInstalledAgent):
         context: AgentContext,
     ) -> None:
         escaped_instruction = shlex.quote(instruction)
-
-        if not self.model_name or "/" not in self.model_name:
-            raise ValueError("Model name must be in the format provider/model_name")
-
-        model = self.model_name.split("/")[-1]
+        model = shlex.quote(self._model_arg())
 
         # Handle API key
         env = {}

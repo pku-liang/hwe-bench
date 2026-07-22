@@ -1,4 +1,5 @@
 import asyncio
+import re
 import shutil
 import subprocess
 import tarfile
@@ -16,6 +17,11 @@ from harbor.models.task.id import GitTaskId, LocalTaskId, PackageTaskId
 from harbor.utils.logger import logger
 
 TaskIdType = GitTaskId | LocalTaskId | PackageTaskId
+_GIT_COMMIT_RE = re.compile(r"^[0-9a-fA-F]{40}$|^[0-9a-fA-F]{64}$")
+
+
+def _is_resolved_git_commit_id(git_commit_id: str | None) -> bool:
+    return bool(git_commit_id and _GIT_COMMIT_RE.fullmatch(git_commit_id))
 
 
 class TaskDownloadConfig(BaseModel):
@@ -28,6 +34,8 @@ class TaskDownloadResult(BaseModel):
     path: Path
     download_time_sec: float
     cached: bool
+    content_hash: str | None = None
+    resolved_git_commit_id: str | None = None
 
 
 class BatchDownloadResult(BaseModel):
@@ -66,6 +74,24 @@ class TaskClient:
             raise subprocess.CalledProcessError(
                 process.returncode, [str(a) for a in args], stdout, stderr
             )
+
+    async def _run_git_stdout(
+        self,
+        *args: str | Path,
+        cwd: Path | None = None,
+    ) -> str:
+        process = await asyncio.create_subprocess_exec(
+            *[str(a) for a in args],
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=cwd,
+        )
+        stdout, stderr = await process.communicate()
+        if process.returncode:
+            raise subprocess.CalledProcessError(
+                process.returncode, [str(a) for a in args], stdout, stderr
+            )
+        return stdout.decode("utf-8").strip()
 
     def _repo_uses_lfs(self, repo_dir: Path) -> bool:
         gitattributes = repo_dir / ".gitattributes"
@@ -116,7 +142,8 @@ class TaskClient:
 
     async def _download_tasks_from_git_url(
         self, git_url: str, task_download_configs: list[TaskDownloadConfig]
-    ):
+    ) -> dict[Path, str]:
+        resolved_commits: dict[Path, str] = {}
         head_task_download_configs = [
             task_download_config
             for task_download_config in task_download_configs
@@ -140,16 +167,21 @@ class TaskClient:
                 for task_download_config in task_download_configs
             }
 
-            await self._run_git(
-                "git",
-                "clone",
-                "--filter=blob:none",
-                "--depth",
-                "1",
-                "--no-checkout",
-                git_url,
-                temp_dir,
-            )
+            # `--filter=blob:none` sets up a promisor remote and defers blob
+            # fetches to Git's lazy-packfile protocol (see git-scm.com/docs/
+            # partial-clone). GitHub implements it; the Hugging Face Hub git
+            # server does not, so a subsequent `git checkout <sha>` on the
+            # partial clone fails with:
+            #     fatal: expected 'packfile'
+            #     fatal: could not fetch <blob-sha> from promisor remote
+            # Skip the filter for `huggingface.co` so the initial shallow
+            # clone brings the blobs the checkout will need. No behavior
+            # change for other hosts.
+            _clone_args: list[str | Path] = ["git", "clone"]
+            if "huggingface.co" not in git_url:
+                _clone_args.append("--filter=blob:none")
+            _clone_args += ["--depth", "1", "--no-checkout", git_url, temp_dir]
+            await self._run_git(*_clone_args)
 
             # Use --stdin to avoid command line length limits on Windows (~8192 chars)
             # and for consistency across all platforms
@@ -166,6 +198,9 @@ class TaskClient:
 
             if head_task_download_configs:
                 await self._run_git("git", "checkout", cwd=temp_dir)
+                resolved_commit_id = await self._run_git_stdout(
+                    "git", "rev-parse", "HEAD", cwd=temp_dir
+                )
 
                 await self._pull_lfs_files(temp_dir, head_task_download_configs)
 
@@ -173,6 +208,9 @@ class TaskClient:
                     self._copy_task_source_to_target(
                         temp_dir / task_download_config.source_path,
                         task_download_config.target_path,
+                    )
+                    resolved_commits[task_download_config.target_path] = (
+                        resolved_commit_id
                     )
 
             for (
@@ -195,6 +233,9 @@ class TaskClient:
                     git_commit_id,
                     cwd=temp_dir,
                 )
+                resolved_commit_id = await self._run_git_stdout(
+                    "git", "rev-parse", "HEAD", cwd=temp_dir
+                )
 
                 await self._pull_lfs_files(temp_dir, task_download_configs_for_commit)
 
@@ -203,6 +244,11 @@ class TaskClient:
                         temp_dir / task_download_config.source_path,
                         task_download_config.target_path,
                     )
+                    resolved_commits[task_download_config.target_path] = (
+                        resolved_commit_id
+                    )
+
+        return resolved_commits
 
     async def _resolve_package_version(
         self, task_id: PackageTaskId
@@ -229,6 +275,9 @@ class TaskClient:
         on_task_download_complete: Callable[[TaskIdType, TaskDownloadResult], Any]
         | None = None,
     ) -> dict[PackageTaskId, TaskDownloadResult]:
+        if not package_task_ids:
+            return {}
+
         from harbor.constants import PACKAGE_CACHE_DIR
         from harbor.db.client import RegistryDB
         from harbor.storage.supabase import SupabaseStorage
@@ -252,7 +301,10 @@ class TaskClient:
 
                 if target_dir.exists() and not overwrite:
                     result = TaskDownloadResult(
-                        path=target_dir, download_time_sec=0.0, cached=True
+                        path=target_dir,
+                        download_time_sec=0.0,
+                        cached=True,
+                        content_hash=resolved.content_hash,
                     )
                     results[task_id] = result
                     if on_task_download_complete is not None:
@@ -279,7 +331,10 @@ class TaskClient:
                     logger.debug("Failed to record task download event")
 
                 result = TaskDownloadResult(
-                    path=target_dir, download_time_sec=elapsed, cached=False
+                    path=target_dir,
+                    download_time_sec=elapsed,
+                    cached=False,
+                    content_hash=resolved.content_hash,
                 )
                 results[task_id] = result
                 if on_task_download_complete is not None:
@@ -336,7 +391,7 @@ class TaskClient:
             for task_id, path in target_paths.items()
             if not path.exists()
             or overwrite
-            or task_id.git_commit_id is None
+            or not _is_resolved_git_commit_id(task_id.git_commit_id)
             or (path.exists() and not any(path.iterdir()))
         }
 
@@ -349,6 +404,7 @@ class TaskClient:
                 path=target_paths[task_id],
                 download_time_sec=0.0,
                 cached=True,
+                resolved_git_commit_id=task_id.git_commit_id,
             )
             if on_task_download_complete is not None:
                 on_task_download_complete(task_id, result)
@@ -359,6 +415,7 @@ class TaskClient:
                 tasks_by_git_url.setdefault(task_id.git_url, []).append((task_id, path))
 
         download_times: dict[GitTaskId, float] = {}
+        resolved_git_commit_ids: dict[GitTaskId, str] = {}
         for git_url, tasks in tasks_by_git_url.items():
             # Fire start callbacks for all tasks in this batch
             if on_task_download_start is not None:
@@ -366,7 +423,7 @@ class TaskClient:
                     on_task_download_start(task_id)
 
             t0 = time.monotonic()
-            await self._download_tasks_from_git_url(
+            resolved_commits_by_path = await self._download_tasks_from_git_url(
                 git_url=git_url,
                 task_download_configs=[
                     TaskDownloadConfig(
@@ -378,8 +435,9 @@ class TaskClient:
                 ],
             )
             elapsed = time.monotonic() - t0
-            for task_id, _ in tasks:
+            for task_id, path in tasks:
                 download_times[task_id] = elapsed
+                resolved_git_commit_ids[task_id] = resolved_commits_by_path[path]
 
             # Fire complete callbacks for all tasks in this batch
             if on_task_download_complete is not None:
@@ -388,6 +446,7 @@ class TaskClient:
                         path=path,
                         download_time_sec=elapsed,
                         cached=False,
+                        resolved_git_commit_id=resolved_git_commit_ids[task_id],
                     )
                     on_task_download_complete(task_id, result)
 
@@ -396,6 +455,9 @@ class TaskClient:
                 path=path,
                 download_time_sec=download_times.get(task_id, 0.0),
                 cached=task_id not in download_task_ids,
+                resolved_git_commit_id=(
+                    resolved_git_commit_ids.get(task_id) or task_id.git_commit_id
+                ),
             )
             for task_id, path in target_paths.items()
         }
