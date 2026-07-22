@@ -25,6 +25,37 @@ class TestReasoningEffortInCommand:
         command = run_command.kwargs.get("command", "")
         assert "--effort high" in command
 
+    @pytest.mark.parametrize("effort", ["xhigh", "max", "ultracode"])
+    @pytest.mark.asyncio
+    async def test_extended_effort_flags_in_command(self, temp_dir, effort):
+        agent = ClaudeCode(logs_dir=temp_dir, reasoning_effort=effort)
+
+        mock_env = AsyncMock()
+        mock_env.exec.return_value = AsyncMock(return_code=0, stdout="", stderr="")
+        mock_context = AsyncMock()
+
+        await agent.run("do something", mock_env, mock_context)
+
+        run_command = mock_env.exec.call_args_list[-1]
+        command = run_command.kwargs.get("command", "")
+        assert f"--effort {effort}" in command
+
+    @pytest.mark.asyncio
+    async def test_max_thinking_tokens_env_only(self, temp_dir):
+        agent = ClaudeCode(logs_dir=temp_dir, max_thinking_tokens=4096)
+
+        mock_env = AsyncMock()
+        mock_env.exec.return_value = AsyncMock(return_code=0, stdout="", stderr="")
+        mock_context = AsyncMock()
+
+        await agent.run("do something", mock_env, mock_context)
+
+        run_command = mock_env.exec.call_args_list[-1]
+        command = run_command.kwargs.get("command", "")
+        env = run_command.kwargs.get("env", {})
+        assert "--max-thinking-tokens" not in command
+        assert env["MAX_THINKING_TOKENS"] == "4096"
+
     @pytest.mark.asyncio
     async def test_no_effort_flag_by_default(self, temp_dir):
         agent = ClaudeCode(logs_dir=temp_dir)

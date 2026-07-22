@@ -2,12 +2,13 @@ import json
 import os
 import shlex
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, override
 
 from litellm.utils import get_model_info
 
 from harbor.agents.installed.base import (
     BaseInstalledAgent,
+    NonZeroAgentExitCodeError,
     with_prompt_template,
 )
 from harbor.environments.base import BaseEnvironment
@@ -56,9 +57,32 @@ _PROVIDER_CONFIG: dict[str, dict[str, Any]] = {
         "base_url": "https://generativelanguage.googleapis.com",
         "env_keys": ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
     },
+    "openrouter": {
+        "type": "openai_legacy",
+        "base_url": "https://openrouter.ai/api/v1",
+        "env_keys": ["OPENROUTER_API_KEY"],
+    },
 }
 
+# kimi-cli's `augment_provider_with_env_vars` (src/kimi_cli/llm.py) silently
+# overrides the config-file `api_key` / `base_url` with these env vars when
+# the provider type matches, even when the config already specifies values
+# (see https://github.com/MoonshotAI/kimi-cli/issues/1165). Hosted runtimes
+# inject `OPENAI_API_KEY` into the container globally (it's needed for
+# codex/GPT trials sharing the same image), so a kimi-cli trial pointed at
+# OpenRouter would silently authenticate with the OpenAI key, hit 401, and
+# exit with an empty trajectory. We unset these inside the bash that spawns
+# `kimi` so the `os.getenv(...)` calls return None and the config wins.
+_KIMI_ENV_OVERRIDES_TO_NEUTRALIZE: tuple[str, ...] = (
+    "OPENAI_API_KEY",
+    "OPENAI_BASE_URL",
+    "KIMI_API_KEY",
+    "KIMI_BASE_URL",
+)
+_KIMI_API_KEY_PLACEHOLDER = "__HARBOR_KIMI_API_KEY__"
+
 _OUTPUT_FILENAME = "kimi-cli.txt"
+_STDERR_FILENAME = "kimi-cli.stderr.log"
 
 
 @dataclass
@@ -99,10 +123,12 @@ class _WireStep:
 
 
 class KimiCli(BaseInstalledAgent):
+    @override
     def get_version_command(self) -> str | None:
         return "kimi --version"
 
     SUPPORTS_ATIF: bool = True
+    SUPPORTS_RESUME: bool = True
 
     _DEFAULT_MAX_CONTEXT_SIZE: int = 131072
 
@@ -120,9 +146,11 @@ class KimiCli(BaseInstalledAgent):
         self._max_context_size = self._resolve_max_context_size()
 
     @staticmethod
+    @override
     def name() -> str:
         return AgentName.KIMI_CLI.value
 
+    @override
     async def install(self, environment: BaseEnvironment) -> None:
         await self.exec_as_root(
             environment,
@@ -152,8 +180,22 @@ class KimiCli(BaseInstalledAgent):
         return ""
 
     def _resolve_max_context_size(self) -> int:
+        # Explicit env override always wins (kimi-cli honors the same var at
+        # runtime; keep the config-file value consistent with it).
+        env_override = os.environ.get("KIMI_MODEL_MAX_CONTEXT_SIZE")
+        if env_override and env_override.strip().isdigit():
+            return int(env_override.strip())
         if not self.model_name:
             return self._DEFAULT_MAX_CONTEXT_SIZE
+        # litellm lacks model_info for Moonshot long-context coding models
+        # (esp. behind an ``openrouter/`` prefix) -> silently capped at the
+        # 128K default, half the real window. Pin the known 256K models.
+        lowered = self.model_name.lower()
+        if any(
+            tag in lowered
+            for tag in ("kimi-k2.7", "kimi-k2.6", "kimi-k2.5", "kimi-k2-thinking")
+        ):
+            return 262144
         try:
             info = get_model_info(self.model_name)
             return info.get("max_input_tokens") or self._DEFAULT_MAX_CONTEXT_SIZE
@@ -169,31 +211,22 @@ class KimiCli(BaseInstalledAgent):
             )
         base_url = self._base_url or pcfg["base_url"]
         api_key = self._resolve_api_key(provider)
-        max_context_size = max(self._max_context_size, 262144)
         config: dict[str, Any] = {
             "default_model": "model",
             "default_yolo": True,
-            "default_thinking": True,
             "providers": {
                 "harbor": {
                     "type": pcfg["type"],
                     "base_url": base_url,
-                    "api_key": api_key,
+                    "api_key": _KIMI_API_KEY_PLACEHOLDER if api_key else "",
                 }
             },
             "models": {
                 "model": {
                     "provider": "harbor",
                     "model": model,
-                    "max_context_size": max_context_size,
+                    "max_context_size": self._max_context_size,
                 }
-            },
-            "loop_control": {
-                "max_steps_per_turn": 500,
-                "max_retries_per_step": 3,
-                "max_ralph_iterations": 0,
-                "reserved_context_size": 50000,
-                "compaction_trigger_ratio": 0.85,
             },
         }
         return json.dumps(config)
@@ -210,6 +243,7 @@ class KimiCli(BaseInstalledAgent):
             servers[server.name] = entry
         return json.dumps({"mcpServers": servers})
 
+    @override
     def populate_context_post_run(self, context: AgentContext) -> None:
         events = self._parse_wire_events()
         if not events:
@@ -255,6 +289,7 @@ class KimiCli(BaseInstalledAgent):
         escaped = shlex.quote(mcp_json)
         return f"mkdir -p /tmp && echo {escaped} > /tmp/kimi-mcp.json"
 
+    @override
     @with_prompt_template
     async def run(
         self,
@@ -269,7 +304,6 @@ class KimiCli(BaseInstalledAgent):
         provider, model = self.model_name.split("/", 1)
 
         config_json = self._build_config_json(provider, model)
-        escaped_config = shlex.quote(config_json)
 
         prompt_request = json.dumps(
             {
@@ -281,15 +315,28 @@ class KimiCli(BaseInstalledAgent):
         )
         escaped_prompt = shlex.quote(prompt_request)
 
-        env: dict[str, str] = {}
+        api_key = self._resolve_api_key(provider)
+        env: dict[str, str] = {
+            "KIMI_SHARE_DIR": "/logs/agent/kimi/share",
+            "HARBOR_KIMI_CONFIG_JSON": config_json,
+            "HARBOR_KIMI_API_KEY": api_key,
+        }
         pcfg = _PROVIDER_CONFIG.get(provider, {})
         for key in pcfg.get("env_keys", []):
             val = os.environ.get(key)
             if val:
                 env[key] = val
 
+        write_config = (
+            "import json, os, pathlib; "
+            "config = json.loads(os.environ['HARBOR_KIMI_CONFIG_JSON']); "
+            "config['providers']['harbor']['api_key'] = "
+            "os.environ.get('HARBOR_KIMI_API_KEY', ''); "
+            "pathlib.Path('/tmp/kimi-config.json').write_text(json.dumps(config))"
+        )
         setup_parts = [
-            f"echo {escaped_config} > /tmp/kimi-config.json",
+            'export PATH="$HOME/.local/bin:$PATH"; '
+            f"uv run --no-project python -c {shlex.quote(write_config)}",
         ]
 
         skills_cmd = self._build_register_skills_command()
@@ -302,68 +349,62 @@ class KimiCli(BaseInstalledAgent):
 
         await self.exec_as_agent(environment, command=" && ".join(setup_parts), env=env)
 
-        mcp_flag = "--mcp-config-file /tmp/kimi-mcp.json" if mcp_cmd else ""
+        mcp_flag = "--mcp-config-file /tmp/kimi-mcp.json " if mcp_cmd else ""
 
-        run_command = f"""
-export PATH="$HOME/.local/bin:$PATH"
-tmp_dir="$(mktemp -d)"
-prompt_fifo="$tmp_dir/prompt.fifo"
-output_fifo="$tmp_dir/output.fifo"
-mkfifo "$prompt_fifo" "$output_fifo"
-cleanup() {{
-  rm -rf "$tmp_dir"
-}}
-trap cleanup EXIT
+        unset_kimi_overrides = f"unset {' '.join(_KIMI_ENV_OVERRIDES_TO_NEUTRALIZE)}; "
+        resume_flag = "--continue " if self._resume else ""
+        save_session = "\n".join(
+            [
+                "import json, os, pathlib",
+                "share = pathlib.Path(os.environ['KIMI_SHARE_DIR'])",
+                "sessions = sorted((share / 'sessions').glob('*/*'), key=lambda p: p.stat().st_mtime)",
+                "if not sessions:",
+                "    raise SystemExit(0)",
+                "cfg_path = share / 'kimi.json'",
+                "try:",
+                "    cfg = json.loads(cfg_path.read_text())",
+                "except (FileNotFoundError, json.JSONDecodeError):",
+                "    cfg = {'work_dirs': []}",
+                "session_id = sessions[-1].name",
+                "work_dirs = cfg.get('work_dirs')",
+                "if not isinstance(work_dirs, list):",
+                "    work_dirs = []",
+                "    cfg['work_dirs'] = work_dirs",
+                "cwd = os.getcwd()",
+                "entry = next((item for item in work_dirs if item.get('path') == cwd), None)",
+                "if entry is None:",
+                "    entry = {'path': cwd, 'kaos': 'local'}",
+                "    work_dirs.append(entry)",
+                "entry['last_session_id'] = session_id",
+                "cfg_path.write_text(json.dumps(cfg))",
+            ]
+        )
 
-{{
-  printf '%s\\n' {escaped_prompt}
-  exec sleep 86400
-}} >"$prompt_fifo" 2>/dev/null &
-producer_pid=$!
+        run_command = (
+            f'export PATH="$HOME/.local/bin:$PATH"; '
+            f"{unset_kimi_overrides}"
+            f"(echo {escaped_prompt}; sleep 86400) | "
+            # --afk: on top of --yolo's tool auto-approval, auto-dismiss
+            # AskUserQuestion and auto-handle plan-mode switches (headless).
+            f"kimi --config-file /tmp/kimi-config.json --wire --yolo --afk "
+            f"{resume_flag}"
+            f"{mcp_flag}"
+            f"2>>/logs/agent/{_STDERR_FILENAME} | ("
+            f"while IFS= read -r line; do "
+            f'echo "$line" >> /logs/agent/{_OUTPUT_FILENAME}; '
+            'case "$line" in *\'"id":"1"\'*) break ;; esac; '
+            "done; "
+            f"uv run --no-project python -c {shlex.quote(save_session)}; "
+            "kill 0 2>/dev/null)"
+        )
 
-kimi --config-file /tmp/kimi-config.json --wire --yolo {mcp_flag} \\
-  <"$prompt_fifo" >"$output_fifo" 2>/dev/null &
-kimi_pid=$!
-
-success=0
-while IFS= read -r line; do
-  echo "$line" >> /logs/agent/{_OUTPUT_FILENAME}
-  case "$line" in
-    *'"id":"1"'*)
-      case "$line" in
-        *'"status":"finished"'*)
-          success=1
-          break
-          ;;
-      esac
-      ;;
-  esac
-done <"$output_fifo"
-
-kill "$producer_pid" 2>/dev/null || true
-if [ "$success" -eq 1 ]; then
-  kill "$kimi_pid" 2>/dev/null || true
-fi
-
-wait "$producer_pid" 2>/dev/null || true
-wait "$kimi_pid"
-kimi_status=$?
-
-if [ "$success" -eq 1 ]; then
-  case "$kimi_status" in
-    0|143) exit 0 ;;
-    *) exit "$kimi_status" ;;
-  esac
-fi
-
-if [ "$kimi_status" -eq 0 ]; then
-  exit 1
-fi
-
-exit "$kimi_status"
-""".strip()
-
-        await self.exec_as_agent(environment, command=run_command, env=env)
+        try:
+            await self.exec_as_agent(environment, command=run_command, env=env)
+        except NonZeroAgentExitCodeError as e:
+            # kill 0 terminates the process group with SIGTERM (exit 143).
+            # This is expected — the task has already completed.
+            if "exit 143" not in str(e):
+                raise
 
     def _parse_wire_events(self) -> list[dict[str, Any]]:
         """Parse wire protocol JSONL, handling unescaped control characters

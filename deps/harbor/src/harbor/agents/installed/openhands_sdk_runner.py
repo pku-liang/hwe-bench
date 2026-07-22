@@ -17,7 +17,6 @@ from openhands.sdk import (
     get_logger,
 )
 from openhands.sdk.context import Skill
-from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.event import (
     ActionEvent,
     MessageEvent,
@@ -29,47 +28,6 @@ from openhands.tools.task_tracker import TaskTrackerTool
 from openhands.tools.terminal import TerminalTool
 
 logger = get_logger(__name__)
-
-
-def register_runtime_model_aliases() -> None:
-    """Register LiteLLM aliases required by local Harbor evals."""
-    try:
-        import litellm
-        from litellm import get_model_info
-
-        glm5_info = get_model_info("zai/glm-5")
-        if glm5_info:
-            glm51_info = dict(glm5_info)
-            glm51_info["key"] = "zai/glm-5.1"
-            litellm.register_model(
-                {
-                    "zai/glm-5.1": glm51_info,
-                    "glm-5.1": dict(glm51_info, key="glm-5.1"),
-                }
-            )
-            logger.debug(
-                "Registered runtime LiteLLM metadata for zai/glm-5.1 from zai/glm-5"
-            )
-
-        try:
-            qwen35_info = get_model_info("dashscope/qwen3.5-plus")
-        except Exception:
-            qwen35_info = None
-        if qwen35_info:
-            litellm.register_model(
-                {
-                    "dashscope/qwen3.6-plus": dict(
-                        qwen35_info, key="dashscope/qwen3.6-plus"
-                    ),
-                    "qwen3.6-plus": dict(qwen35_info, key="qwen3.6-plus"),
-                }
-            )
-            logger.debug(
-                "Registered runtime LiteLLM metadata for dashscope/qwen3.6-plus from dashscope/qwen3.5-plus"
-            )
-    except Exception as exc:
-        logger.warning(f"Failed to register runtime model aliases: {exc}")
-
 
 
 def load_skill_from_file(skill_path: Path) -> Skill | None:
@@ -243,8 +201,6 @@ def main():
         litellm_extra_body = json.loads(extra_body_raw)
         logger.debug(f"LiteLLM extra body: {litellm_extra_body}")
 
-    register_runtime_model_aliases()
-
     # Configure LLM
     llm_kwargs: dict[str, Any] = {
         "model": model,
@@ -276,18 +232,15 @@ def main():
 
     # Create agent context with skills
     agent_context = AgentContext(skills=skills)
-    condenser = LLMSummarizingCondenser(
-        llm=llm.model_copy(update={"usage_id": "condenser"}),
-        max_size=240,
-        keep_first=2,
-    )
 
-    # Parse MCP server config from environment (serialized by openhands_sdk.py)
+    # Parse MCP server config from environment (serialized by openhands_sdk.py).
+    # OpenHands SDK >=1.35 expects a flat dict[str, MCPServer], not the older
+    # Claude-style {"mcpServers": {...}} wrapper.
     mcp_config = None
     mcp_servers_raw = os.environ.get("MCP_SERVERS_JSON")
     if mcp_servers_raw:
         mcp_servers = json.loads(mcp_servers_raw)
-        mcp_config = {"mcpServers": {}}
+        mcp_config = {}
         for mcp in mcp_servers:
             server_name = mcp.get("name", "mcp-server")
             transport = mcp.get("transport", "stdio")
@@ -300,7 +253,9 @@ def main():
             else:
                 if mcp.get("url"):
                     server_cfg["url"] = mcp["url"]
-            mcp_config["mcpServers"][server_name] = server_cfg
+                # Harbor transports (http, streamable-http, sse) match the SDK.
+                server_cfg["transport"] = transport
+            mcp_config[server_name] = server_cfg
         logger.debug(f"MCP config: {json.dumps(mcp_config, indent=2)}")
 
     # Create agent (with optional MCP config)
@@ -308,7 +263,6 @@ def main():
         "llm": llm,
         "tools": tools,
         "agent_context": agent_context,
-        "condenser": condenser,
     }
     if mcp_config:
         agent_kwargs["mcp_config"] = mcp_config
@@ -332,7 +286,7 @@ def main():
         print(f"Max iterations per run: {max_iter_raw}")
     print(f"Loaded {len(skills)} skills")
     if mcp_config:
-        print(f"MCP servers: {list(mcp_config['mcpServers'].keys())}")
+        print(f"MCP servers: {list(mcp_config.keys())}")
 
     # Send instruction and run
     conversation.send_message(args.instruction)
@@ -353,12 +307,12 @@ def main():
     try:
         system_prompt = agent.static_system_message
     except Exception as e:
-        logger.warning(f"Could not extract system prompt: {e}")
+        logger.debug(f"Could not extract system prompt: {e}")
     try:
         for tool_name, tool_obj in agent.tools_map.items():
             tool_definitions.append(tool_obj.to_openai_tool())
     except Exception as e:
-        logger.warning(f"Could not extract tool definitions: {e}")
+        logger.debug(f"Could not extract tool definitions: {e}")
 
     if system_prompt:
         print(f"Captured system prompt ({len(system_prompt)} chars)")
