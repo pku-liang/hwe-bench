@@ -12,18 +12,22 @@
     ]
   },
   "models": [
-    {
-      "name": "GPT-5.6 Sol max",
-      "agent": "Codex CLI",
-      "group": "proprietary",
+  {
+    "name": "GPT-5.6 Sol",
+    "effort": "max",
+    "agent": "Codex CLI",
+    "vendor": "openai",
+    "group": "proprietary",
       "resolved": { "opentitan": 184, "ibex": 32, "cva6": 33, "caliptra": 15, "xiangshan": 42, "rocketchip": 27 },
       "overall": 333,
       "costs": 1178.73,
       "precision": 0.832
     },
     {
-      "name": "GPT-5.5 xhigh",
+      "name": "GPT-5.5",
+      "effort": "xhigh",
       "agent": "Codex CLI",
+      "vendor": "openai",
       "group": "proprietary",
       "resolved": { "opentitan": 174, "ibex": 31, "cva6": 33, "caliptra": 15, "xiangshan": 43, "rocketchip": 23 },
       "overall": 319,
@@ -31,8 +35,10 @@
       "precision": 0.755
     },
     {
-      "name": "GPT-5.4 xhigh",
+      "name": "GPT-5.4",
+      "effort": "xhigh",
       "agent": "Codex CLI",
+      "vendor": "openai",
       "group": "proprietary",
       "resolved": { "opentitan": 157, "ibex": 32, "cva6": 34, "caliptra": 15, "xiangshan": 37, "rocketchip": 20 },
       "overall": 295,
@@ -40,8 +46,10 @@
       "precision": 0.619
     },
     {
-      "name": "Claude Opus 4.7 max",
+      "name": "Claude Opus 4.7",
+      "effort": "max",
       "agent": "Claude Code",
+      "vendor": "anthropic",
       "group": "proprietary",
       "resolved": { "opentitan": 173, "ibex": 30, "cva6": 31, "caliptra": 16, "xiangshan": 40, "rocketchip": 21 },
       "overall": 311,
@@ -49,8 +57,10 @@
       "precision": 0.941
     },
     {
-      "name": "Claude Opus 4.6 high",
+      "name": "Claude Opus 4.6",
+      "effort": "high",
       "agent": "Claude Code",
+      "vendor": "anthropic",
       "group": "proprietary",
       "resolved": { "opentitan": 156, "ibex": 29, "cva6": 30, "caliptra": 14, "xiangshan": 36, "rocketchip": 19 },
       "overall": 284,
@@ -58,8 +68,10 @@
       "precision": 0.928
     },
     {
-      "name": "Claude Sonnet 4.6 high",
+      "name": "Claude Sonnet 4.6",
+      "effort": "high",
       "agent": "Claude Code",
+      "vendor": "anthropic",
       "group": "proprietary",
       "resolved": { "opentitan": 152, "ibex": 29, "cva6": 30, "caliptra": 13, "xiangshan": 36, "rocketchip": 18 },
       "overall": 278,
@@ -68,6 +80,8 @@
     },
     {
       "name": "GLM 5.2",
+      "effort": "max",
+      "vendor": "zhipu",
       "agent": "OpenHands SDK",
       "group": "open-source",
       "resolved": {
@@ -84,6 +98,7 @@
     },
     {
       "name": "Kimi K2.6",
+      "vendor": "moonshot",
       "agent": "Kimi CLI",
       "group": "open-source",
       "resolved": { "opentitan": 151, "ibex": 28, "cva6": 30, "caliptra": 13, "xiangshan": 34, "rocketchip": 23 },
@@ -93,6 +108,7 @@
     },
     {
       "name": "GLM 5.1",
+      "vendor": "zhipu",
       "agent": "OpenHands SDK",
       "group": "open-source",
       "resolved": { "opentitan": 152, "ibex": 26, "cva6": 28, "caliptra": 11, "xiangshan": 29, "rocketchip": 17 },
@@ -102,6 +118,7 @@
     },
     {
       "name": "Qwen3.6 Plus",
+      "vendor": "qwen",
       "agent": "OpenHands SDK",
       "group": "open-source",
       "resolved": { "opentitan": 118, "ibex": 22, "cva6": 30, "caliptra": 9, "xiangshan": 25, "rocketchip": 15 },
@@ -111,6 +128,8 @@
     },
     {
       "name": "DeepSeek V4 Pro",
+      "effort": "max",
+      "vendor": "deepseek",
       "agent": "Claude Code",
       "group": "open-source",
       "resolved": { "opentitan": 141, "ibex": 20, "cva6": 30, "caliptra": 10, "xiangshan": 32, "rocketchip": 19 },
@@ -120,6 +139,8 @@
     },
     {
       "name": "DeepSeek V4 Flash",
+      "effort": "max",
+      "vendor": "deepseek",
       "agent": "Claude Code",
       "group": "open-source",
       "resolved": { "opentitan": 133, "ibex": 22, "cva6": 29, "caliptra": 14, "xiangshan": 28, "rocketchip": 17 },
@@ -129,6 +150,7 @@
     },
     {
       "name": "DeepSeek V3.2",
+      "vendor": "deepseek",
       "agent": "OpenHands SDK",
       "group": "open-source",
       "resolved": { "opentitan": 116, "ibex": 22, "cva6": 24, "caliptra": 13, "xiangshan": 28, "rocketchip": 14 },
@@ -138,6 +160,7 @@
     },
     {
       "name": "Kimi K2.5",
+      "vendor": "moonshot",
       "agent": "Kimi CLI",
       "group": "open-source",
       "resolved": { "opentitan": 106, "ibex": 19, "cva6": 28, "caliptra": 10, "xiangshan": 22, "rocketchip": 14 },
