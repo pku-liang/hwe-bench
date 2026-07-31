@@ -9,7 +9,7 @@ Methodology, design decisions, and detailed analysis are described in the accomp
 [![Dataset](https://img.shields.io/badge/Dataset-HuggingFace-orange)](https://huggingface.co/datasets/henryen/hwe-bench)
 [![Website](https://img.shields.io/badge/Website-Leaderboard-0f766e)](https://pku-liang.github.io/hwe-bench/)
 
-## <kbd>NEWS</kbd>
+## NEWS
 
 - **2026-07-31:** Launched the [interactive leaderboard](https://pku-liang.github.io/hwe-bench/) and updated the vendored [Harbor](https://github.com/harbor-framework/harbor) snapshot to `main@00c19fe2`. Generated tasks now explicitly prohibit external access. Added reference scores for GPT-5.6 Sol max and GLM-5.2, and re-evaluated GPT-5.5 xhigh under the updated setup.
 
