@@ -34,6 +34,11 @@ class TestOpenHandsSDKAgent:
             assert agent._load_skills is True
             assert agent._reasoning_effort == "high"
             assert len(agent._skill_paths) > 0
+            assert agent._max_input_tokens is None
+            assert agent._max_output_tokens is None
+            assert agent._enable_condenser is False
+            assert agent._condenser_max_size == 240
+            assert agent._condenser_keep_first == 2
 
     def test_init_custom_params(self):
         """Test initialization with custom parameters."""
@@ -45,10 +50,14 @@ class TestOpenHandsSDKAgent:
                 load_skills=False,
                 skill_paths=custom_paths,
                 reasoning_effort="low",
+                max_input_tokens=1_000_000,
+                max_output_tokens=131_072,
             )
             assert agent._load_skills is False
             assert agent._skill_paths == custom_paths
             assert agent._reasoning_effort == "low"
+            assert agent._max_input_tokens == 1_000_000
+            assert agent._max_output_tokens == 131_072
 
     def test_has_install_method(self):
         """Test agent has install() method."""
@@ -86,6 +95,7 @@ class TestOpenHandsSDKAgent:
             assert env.get("LLM_MODEL") == "anthropic/claude-sonnet-4-5"
             assert "LOAD_SKILLS" in env
             assert "SKILL_PATHS" in env
+            assert env["OPENHANDS_SDK_ENABLE_CONDENSER"] == "0"
 
     @patch.dict(
         "os.environ", {"LLM_API_KEY": "llm-key", "LLM_BASE_URL": "https://custom.api"}
@@ -477,6 +487,44 @@ class TestOpenHandsSDKAgent:
                 mock_env.exec.call_args_list[0].kwargs["env"].get("LLM_TEMPERATURE")
                 == "0.7"
             )
+
+    @patch.dict("os.environ", {"LLM_API_KEY": "test-key"})
+    @pytest.mark.asyncio
+    async def test_run_with_condenser(self):
+        """Test condenser configuration is passed to the runner."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            agent = OpenHandsSDK(
+                logs_dir=Path(tmpdir),
+                model_name="test/model",
+                enable_condenser=True,
+                condenser_max_size=240,
+                condenser_keep_first=2,
+            )
+            mock_env = AsyncMock()
+            mock_env.exec.return_value = AsyncMock(return_code=0, stdout="", stderr="")
+            await agent.run("Test instruction", mock_env, AsyncMock())
+            env = mock_env.exec.call_args_list[0].kwargs["env"]
+            assert env["OPENHANDS_SDK_ENABLE_CONDENSER"] == "1"
+            assert env["OPENHANDS_SDK_CONDENSER_MAX_SIZE"] == "240"
+            assert env["OPENHANDS_SDK_CONDENSER_KEEP_FIRST"] == "2"
+
+    @patch.dict("os.environ", {"LLM_API_KEY": "test-key"})
+    @pytest.mark.asyncio
+    async def test_run_with_token_limits(self):
+        """Test model token limits are passed to the runner."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            agent = OpenHandsSDK(
+                logs_dir=Path(tmpdir),
+                model_name="zai/glm-5.2",
+                max_input_tokens=1_000_000,
+                max_output_tokens=131_072,
+            )
+            mock_env = AsyncMock()
+            mock_env.exec.return_value = AsyncMock(return_code=0, stdout="", stderr="")
+            await agent.run("Test instruction", mock_env, AsyncMock())
+            env = mock_env.exec.call_args_list[0].kwargs["env"]
+            assert env["LLM_MAX_INPUT_TOKENS"] == "1000000"
+            assert env["LLM_MAX_OUTPUT_TOKENS"] == "131072"
 
     @patch.dict("os.environ", {"LLM_API_KEY": "test-key"})
     @pytest.mark.asyncio

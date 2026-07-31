@@ -115,7 +115,10 @@ def run(
         timed_out = False
         try:
             container.wait(timeout=timeout_seconds)
-        except requests.exceptions.ReadTimeout:
+        except (
+            requests.exceptions.ReadTimeout,
+            requests.exceptions.ConnectionError,
+        ):
             timed_out = True
             try:
                 container.stop(timeout=10)

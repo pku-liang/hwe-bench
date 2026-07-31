@@ -17,6 +17,7 @@ from openhands.sdk import (
     get_logger,
 )
 from openhands.sdk.context import Skill
+from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.event import (
     ActionEvent,
     MessageEvent,
@@ -28,6 +29,17 @@ from openhands.tools.task_tracker import TaskTrackerTool
 from openhands.tools.terminal import TerminalTool
 
 logger = get_logger(__name__)
+
+
+def create_condenser(llm: LLM) -> LLMSummarizingCondenser | None:
+    if os.environ["OPENHANDS_SDK_ENABLE_CONDENSER"] != "1":
+        return None
+
+    return LLMSummarizingCondenser(
+        llm=llm.model_copy(update={"usage_id": "condenser"}),
+        max_size=int(os.environ["OPENHANDS_SDK_CONDENSER_MAX_SIZE"]),
+        keep_first=int(os.environ["OPENHANDS_SDK_CONDENSER_KEEP_FIRST"]),
+    )
 
 
 def load_skill_from_file(skill_path: Path) -> Skill | None:
@@ -194,7 +206,7 @@ def main():
     logs_dir = Path(args.logs_dir)
     logs_dir.mkdir(parents=True, exist_ok=True)
 
-    # Parse optional litellm extra body (for token ID collection with SGLang/vLLM)
+    # Parse optional provider-specific LiteLLM request fields.
     litellm_extra_body: dict[str, Any] = {}
     extra_body_raw = os.environ.get("LITELLM_EXTRA_BODY")
     if extra_body_raw:
@@ -207,6 +219,12 @@ def main():
         "api_key": api_key,
         "base_url": base_url,
     }
+    max_input_tokens_raw = os.environ.get("LLM_MAX_INPUT_TOKENS")
+    if max_input_tokens_raw:
+        llm_kwargs["max_input_tokens"] = int(max_input_tokens_raw)
+    max_output_tokens_raw = os.environ.get("LLM_MAX_OUTPUT_TOKENS")
+    if max_output_tokens_raw:
+        llm_kwargs["max_output_tokens"] = int(max_output_tokens_raw)
     if litellm_extra_body:
         llm_kwargs["litellm_extra_body"] = litellm_extra_body
     temperature_raw = os.environ.get("LLM_TEMPERATURE")
@@ -264,6 +282,9 @@ def main():
         "tools": tools,
         "agent_context": agent_context,
     }
+    condenser = create_condenser(llm)
+    if condenser is not None:
+        agent_kwargs["condenser"] = condenser
     if mcp_config:
         agent_kwargs["mcp_config"] = mcp_config
     agent = Agent(**agent_kwargs)
@@ -280,6 +301,10 @@ def main():
 
     print(f"Starting agent with instruction: {args.instruction[:200]}...")
     print(f"Using model: {model}")
+    if max_input_tokens_raw:
+        print(f"Max input tokens: {max_input_tokens_raw}")
+    if max_output_tokens_raw:
+        print(f"Max output tokens: {max_output_tokens_raw}")
     if temperature_raw:
         print(f"Temperature: {temperature_raw}")
     if max_iter_raw:

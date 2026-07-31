@@ -49,7 +49,7 @@ harbor run --path tasks/hwe-bench-ibex/ \
   -a codex -m openai/gpt-5.4 \
   --ak reasoning_effort=xhigh \
   --ak web_search=disabled \
-  -k 1 -r 2 --n-concurrent 4 --no-delete \
+  -k 1 -r 2 --n-concurrent 4 \
   --agent-setup-timeout-multiplier 2.0 \
   --job-name my-first-run
 
@@ -139,7 +139,7 @@ Set environment variables for the agents you plan to evaluate:
 |---|---|---|
 | Claude Code | `CLAUDE_CODE_OAUTH_TOKEN` | Also pass `--ae ANTHROPIC_API_KEY=` to clear any host-side API key |
 | Codex CLI | `CODEX_AUTH_JSON_PATH` | Host path to `~/.codex/auth.json`; Harbor uploads it into the container |
-| Kimi CLI | `KIMI_API_KEY` | Format `sk-kimi-...` (not `MOONSHOT_API_KEY`) |
+| Kimi Code | `KIMI_MODEL_API_KEY` | Format `sk-kimi-...` (not `MOONSHOT_API_KEY`) |
 | OpenHands SDK | `LLM_API_KEY` | Provider-specific, passed through to LiteLLM see [docs/agents.md](docs/agents.md) for endpoint details |
 
 Agent-specific command templates and provider notes are documented in [docs/agents.md](docs/agents.md).
@@ -161,8 +161,9 @@ Re-run the adapter whenever per-PR Docker images are rebuilt; task `test.sh` fil
 
 ### 2. Run the agent
 
-`--no-delete` is **mandatory**. Without it Harbor deletes per-PR images between retries, breaking subsequent attempts.
+The pinned Harbor snapshot's default cleanup preserves the prebuilt per-PR images used by HWE-bench. Use `--no-delete` only when Harbor-built local images should also be retained after a run.
 Codex commands keep `web_search=disabled` so agents do not look up the upstream PR or patch during benchmark runs.
+Generated tasks allow public network access during agent installation and execution, while keeping the verifier offline. Rootless Docker does not yet support Harbor's hostname allowlist reliably on the tested host, so agent-side search restrictions remain part of each benchmark recipe.
 
 ```bash
 # Codex CLI
@@ -171,7 +172,7 @@ harbor run --path tasks/hwe-bench-<repo>/ \
   -a codex -m openai/gpt-5.4 \
   --ak reasoning_effort=xhigh \
   --ak web_search=disabled \
-  -k 1 -r 2 --n-concurrent 4 --no-delete \
+  -k 1 -r 2 --n-concurrent 4 \
   --agent-setup-timeout-multiplier 2.0 \
   --job-name hwe-<repo>-codex
 
@@ -183,12 +184,12 @@ harbor run --path tasks/hwe-bench-<repo>/ \
   --ae CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
   --ae ANTHROPIC_API_KEY= \
   --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 \
-  -k 1 -r 2 --n-concurrent 4 --no-delete \
+  -k 1 -r 2 --n-concurrent 4 \
   --agent-setup-timeout-multiplier 2.0 \
   --job-name hwe-<repo>-claude
 ```
 
-Recipes for other agents (Kimi, DeepSeek, Qwen, GLM): see [docs/agents.md](docs/agents.md).
+Recipes for Kimi and DeepSeek: see [docs/agents.md](docs/agents.md).
 
 ### 3. Extract patches
 

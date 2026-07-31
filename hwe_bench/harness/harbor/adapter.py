@@ -9,6 +9,13 @@ from typing import Any
 
 
 TEMPLATES_DIR = Path(__file__).with_name("templates")
+EVALUATION_CONSTRAINTS = (
+    "## Evaluation constraints\n\n"
+    "Solve this task using only the files and tools already present in the task "
+    "environment. Do not issue commands or invoke tools to access the Internet "
+    "or any external service, including GitHub, git remotes, package registries, "
+    "search engines, documentation sites, or external APIs."
+)
 
 # Map (org, repo) to the directory name used inside Docker containers.
 # Harness Dockerfiles clone repos into /home/<dir_name>.
@@ -127,7 +134,11 @@ def convert(records: list[dict[str, Any]], output_dir: Path) -> list[Path]:
                 },
             ),
         )
-        write_text(task_dir / "instruction.md", str(record["problem_statement"]))
+        problem_statement = str(record["problem_statement"]).rstrip()
+        write_text(
+            task_dir / "instruction.md",
+            f"{problem_statement}\n\n{EVALUATION_CONSTRAINTS}\n",
+        )
         write_text(task_dir / "environment" / "docker-compose.yaml", "services: {}\n")
         write_text(
             task_dir / "tests" / "test.sh",

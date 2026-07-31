@@ -1,15 +1,23 @@
+schema_version = "1.4"
+
 [metadata]
 instance_id = "{{ instance_id }}"
 
 [environment]
 docker_image = "{{ image_name }}"
-allow_internet = true
+network_mode = "public"
 cpus = 4
 memory_mb = 16384
 build_timeout_sec = 600
 
+[environment.env]
+NO_PROXY = "10.0.2.2,127.0.0.1,localhost"
+no_proxy = "10.0.2.2,127.0.0.1,localhost"
+
 [agent]
 timeout_sec = 21600
+network_mode = "public"
 
 [verifier]
 timeout_sec = 600
+network_mode = "no-network"

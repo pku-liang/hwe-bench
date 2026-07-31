@@ -46,8 +46,13 @@ class OpenHandsSDK(BaseInstalledAgent):
         skill_paths: list[str] | None = None,
         collect_token_ids: bool = False,
         max_iterations: int | None = None,
+        max_input_tokens: int | None = None,
+        max_output_tokens: int | None = None,
         temperature: float | None = None,
         python_version: str = "3.12",
+        enable_condenser: bool = False,
+        condenser_max_size: int = 240,
+        condenser_keep_first: int = 2,
         *args,
         **kwargs,
     ):
@@ -62,10 +67,15 @@ class OpenHandsSDK(BaseInstalledAgent):
                 (requires SGLang/vLLM; third-party APIs will ignore this).
             max_iterations: Maximum number of agent iterations per run.
                 Maps to the SDK's max_iteration_per_run parameter.
+            max_input_tokens: Model context window exposed to the OpenHands SDK.
+            max_output_tokens: Maximum model output exposed to the OpenHands SDK.
             temperature: LLM sampling temperature (0.0 to 2.0).
             python_version: Python version for the SDK venv (openhands-sdk
                 requires >=3.12). Installed via uv regardless of the system
                 Python in the base image.
+            enable_condenser: Whether to enable OpenHands context condensation.
+            condenser_max_size: Maximum event count before condensation.
+            condenser_keep_first: Number of initial events to retain.
         """
         super().__init__(*args, **kwargs)
         self._reasoning_effort = reasoning_effort
@@ -73,8 +83,13 @@ class OpenHandsSDK(BaseInstalledAgent):
         self._skill_paths = skill_paths or self.DEFAULT_SKILL_PATHS
         self._collect_token_ids = collect_token_ids
         self._max_iterations = max_iterations
+        self._max_input_tokens = max_input_tokens
+        self._max_output_tokens = max_output_tokens
         self._temperature = temperature
         self._python_version = str(python_version)
+        self._enable_condenser = enable_condenser
+        self._condenser_max_size = condenser_max_size
+        self._condenser_keep_first = condenser_keep_first
 
     @staticmethod
     @override
@@ -191,11 +206,19 @@ class OpenHandsSDK(BaseInstalledAgent):
         else:
             raise ValueError("No LLM model specified")
 
+        if self._max_input_tokens is not None:
+            env["LLM_MAX_INPUT_TOKENS"] = str(self._max_input_tokens)
+        if self._max_output_tokens is not None:
+            env["LLM_MAX_OUTPUT_TOKENS"] = str(self._max_output_tokens)
+
         # Set up paths
         env["AGENT_LOGS_DIR"] = "/logs/agent"
         env["TRAJECTORY_PATH"] = f"/logs/agent/{self._TRAJECTORY_FILENAME}"
         env["LOAD_SKILLS"] = "1" if self._load_skills else "0"
         env["SKILL_PATHS"] = ":".join(self._skill_paths)
+        env["OPENHANDS_SDK_ENABLE_CONDENSER"] = "1" if self._enable_condenser else "0"
+        env["OPENHANDS_SDK_CONDENSER_MAX_SIZE"] = str(self._condenser_max_size)
+        env["OPENHANDS_SDK_CONDENSER_KEEP_FIRST"] = str(self._condenser_keep_first)
 
         # Pass MCP server config so run_agent.py can register them with the SDK
         if self.mcp_servers:
