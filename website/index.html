@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HWE-Bench — Hardware Bug Repair Benchmark for LLM Agents</title>
+<meta name="description" content="HWE-Bench evaluates coding agents on 417 real-world RTL and hardware bug-repair tasks from six open-source hardware projects.">
+<meta property="og:title" content="HWE-Bench — Hardware Bug Repair Benchmark for LLM Agents">
+<meta property="og:description" content="417 simulation-verified hardware bug-repair cases from six open-source RTL projects.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://pku-liang.github.io/hwe-bench/">
+<meta property="og:image" content="https://pku-liang.github.io/hwe-bench/assets/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<nav class="site-nav">
+  <div class="wrap nav-inner">
+    <a class="nav-brand" href="#top">HWE-Bench</a>
+    <div class="nav-links">
+      <a href="#overview" class="nav-item">Overview</a>
+      <a href="#leaderboard" class="nav-leaderboard">Leaderboard</a>
+      <a href="#citation" class="nav-item">Citation</a>
+      <a class="nav-ext" href="https://github.com/pku-liang/hwe-bench">GitHub ↗</a>
+    </div>
+  </div>
+</nav>
+
+<header class="site-header" id="top">
+  <div class="wrap">
+    <h1>HWE-Bench</h1>
+    <p class="tagline">A benchmark for evaluating LLM agents on real-world hardware bug repair. 417 cases from six open-source RTL projects, each verified by simulation.</p>
+    <nav class="links">
+      <a class="link-primary" href="https://arxiv.org/abs/2604.14709">Paper</a>
+      <a class="link-text" href="https://github.com/pku-liang/hwe-bench">GitHub</a>
+      <a class="link-text" href="https://huggingface.co/datasets/henryen/hwe-bench">Dataset</a>
+    </nav>
+    <div class="stats">
+      <div class="stat"><span class="stat-num" id="stat-cases">417</span><span class="stat-label">Cases</span></div>
+      <div class="stat"><span class="stat-num">6</span><span class="stat-label">Repositories</span></div>
+      <div class="stat"><span class="stat-num" id="stat-models">&ndash;</span><span class="stat-label">Models</span></div>
+      <div class="stat"><span class="stat-num" id="stat-top">&ndash;</span><span class="stat-label">Top Resolved</span></div>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+    <section id="overview">
+      <h2>Overview</h2>
+      <div class="chart-scale" aria-hidden="true">
+        <span></span>
+        <div class="scale-labels"><span>0</span><span>25</span><span>50</span><span>75</span><span>100%</span></div>
+        <span></span>
+      </div>
+      <div id="chart" class="chart" role="img" aria-label="Bar chart of overall resolved rates by model"></div>
+      <div class="legend">
+        <span class="swatch proprietary"></span>Proprietary
+        <span class="swatch open-source"></span>Open-Source
+      </div>
+    </section>
+  </div>
+
+  <div class="wrap wrap-wide">
+    <section id="leaderboard">
+      <div class="section-head">
+        <h2>Leaderboard</h2>
+        <span class="table-hint">Repository scores →</span>
+        <div class="controls">
+          <div class="control-group">
+            <span class="control-label">View</span>
+            <div id="view-mode" class="segmented"></div>
+          </div>
+          <div class="control-group">
+            <span class="control-label">Score</span>
+            <div id="display-mode" class="segmented"></div>
+          </div>
+          <div class="control-group">
+            <span class="control-label">Scaffold</span>
+            <div id="agent-filters" class="chips"></div>
+          </div>
+        </div>
+      </div>
+      <div class="table-scroll">
+        <table id="scores">
+          <thead></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="hint">Click a column header to sort.</p>
+      <p class="precision-note">* Precision: the fraction of agent-modified files that appear in the ground-truth patch, averaged across patches.</p>
+    </section>
+  </div>
+
+  <div class="wrap">
+    <section id="citation">
+      <h2>Citation</h2>
+      <div class="bibtex-wrap">
+        <pre id="bibtex">@article{cui2026hwe,
+  title={HWE-Bench: Benchmarking LLM Agents on Real-World Hardware Bug Repair Tasks},
+  author={Cui, Fan and Hou, Hongyuan and Luo, Zizhang and Yin, Chenyun and Liang, Yun},
+  journal={arXiv preprint arXiv:2604.14709},
+  year={2026}
+}</pre>
+        <button id="copy-bibtex" type="button">Copy</button>
+      </div>
+    </section>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <span>HWE-Bench &middot; Apache 2.0</span>
+  </div>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>

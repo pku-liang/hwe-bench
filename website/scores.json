@@ -1,0 +1,149 @@
+{
+  "benchmark": {
+    "name": "HWE-bench",
+    "total": 417,
+    "repos": [
+      { "id": "opentitan", "name": "OpenTitan", "cases": 245 },
+      { "id": "ibex", "name": "Ibex", "cases": 35 },
+      { "id": "cva6", "name": "CVA6", "cases": 35 },
+      { "id": "caliptra", "name": "Caliptra", "cases": 16 },
+      { "id": "xiangshan", "name": "XiangShan", "cases": 54 },
+      { "id": "rocketchip", "name": "Rocket Chip", "cases": 32 }
+    ]
+  },
+  "models": [
+    {
+      "name": "GPT-5.6 Sol max",
+      "agent": "Codex CLI",
+      "group": "proprietary",
+      "resolved": { "opentitan": 184, "ibex": 32, "cva6": 33, "caliptra": 15, "xiangshan": 42, "rocketchip": 27 },
+      "overall": 333,
+      "costs": 1178.73,
+      "precision": 0.832
+    },
+    {
+      "name": "GPT-5.5 xhigh",
+      "agent": "Codex CLI",
+      "group": "proprietary",
+      "resolved": { "opentitan": 174, "ibex": 31, "cva6": 33, "caliptra": 15, "xiangshan": 43, "rocketchip": 23 },
+      "overall": 319,
+      "costs": 1063.98,
+      "precision": 0.755
+    },
+    {
+      "name": "GPT-5.4 xhigh",
+      "agent": "Codex CLI",
+      "group": "proprietary",
+      "resolved": { "opentitan": 157, "ibex": 32, "cva6": 34, "caliptra": 15, "xiangshan": 37, "rocketchip": 20 },
+      "overall": 295,
+      "costs": 754.77,
+      "precision": 0.619
+    },
+    {
+      "name": "Claude Opus 4.7 max",
+      "agent": "Claude Code",
+      "group": "proprietary",
+      "resolved": { "opentitan": 173, "ibex": 30, "cva6": 31, "caliptra": 16, "xiangshan": 40, "rocketchip": 21 },
+      "overall": 311,
+      "costs": 560.87,
+      "precision": 0.941
+    },
+    {
+      "name": "Claude Opus 4.6 high",
+      "agent": "Claude Code",
+      "group": "proprietary",
+      "resolved": { "opentitan": 156, "ibex": 29, "cva6": 30, "caliptra": 14, "xiangshan": 36, "rocketchip": 19 },
+      "overall": 284,
+      "costs": 212.67,
+      "precision": 0.928
+    },
+    {
+      "name": "Claude Sonnet 4.6 high",
+      "agent": "Claude Code",
+      "group": "proprietary",
+      "resolved": { "opentitan": 152, "ibex": 29, "cva6": 30, "caliptra": 13, "xiangshan": 36, "rocketchip": 18 },
+      "overall": 278,
+      "costs": 108.42,
+      "precision": 0.916
+    },
+    {
+      "name": "GLM 5.2",
+      "agent": "OpenHands SDK",
+      "group": "open-source",
+      "resolved": {
+        "opentitan": 172,
+        "ibex": 27,
+        "cva6": 31,
+        "caliptra": 15,
+        "xiangshan": 41,
+        "rocketchip": 21
+      },
+      "overall": 307,
+      "costs": 997.89,
+      "precision": 0.813
+    },
+    {
+      "name": "Kimi K2.6",
+      "agent": "Kimi CLI",
+      "group": "open-source",
+      "resolved": { "opentitan": 151, "ibex": 28, "cva6": 30, "caliptra": 13, "xiangshan": 34, "rocketchip": 23 },
+      "overall": 279,
+      "costs": 240.02,
+      "precision": 0.842
+    },
+    {
+      "name": "GLM 5.1",
+      "agent": "OpenHands SDK",
+      "group": "open-source",
+      "resolved": { "opentitan": 152, "ibex": 26, "cva6": 28, "caliptra": 11, "xiangshan": 29, "rocketchip": 17 },
+      "overall": 263,
+      "costs": 225.18,
+      "precision": 0.892
+    },
+    {
+      "name": "Qwen3.6 Plus",
+      "agent": "OpenHands SDK",
+      "group": "open-source",
+      "resolved": { "opentitan": 118, "ibex": 22, "cva6": 30, "caliptra": 9, "xiangshan": 25, "rocketchip": 15 },
+      "overall": 219,
+      "costs": 208.50,
+      "precision": 0.878
+    },
+    {
+      "name": "DeepSeek V4 Pro",
+      "agent": "Claude Code",
+      "group": "open-source",
+      "resolved": { "opentitan": 141, "ibex": 20, "cva6": 30, "caliptra": 10, "xiangshan": 32, "rocketchip": 19 },
+      "overall": 252,
+      "costs": 32.95,
+      "precision": 0.895
+    },
+    {
+      "name": "DeepSeek V4 Flash",
+      "agent": "Claude Code",
+      "group": "open-source",
+      "resolved": { "opentitan": 133, "ibex": 22, "cva6": 29, "caliptra": 14, "xiangshan": 28, "rocketchip": 17 },
+      "overall": 243,
+      "costs": 12.26,
+      "precision": 0.887
+    },
+    {
+      "name": "DeepSeek V3.2",
+      "agent": "OpenHands SDK",
+      "group": "open-source",
+      "resolved": { "opentitan": 116, "ibex": 22, "cva6": 24, "caliptra": 13, "xiangshan": 28, "rocketchip": 14 },
+      "overall": 217,
+      "costs": 41.70,
+      "precision": 0.865
+    },
+    {
+      "name": "Kimi K2.5",
+      "agent": "Kimi CLI",
+      "group": "open-source",
+      "resolved": { "opentitan": 106, "ibex": 19, "cva6": 28, "caliptra": 10, "xiangshan": 22, "rocketchip": 14 },
+      "overall": 199,
+      "costs": 66.72,
+      "precision": 0.859
+    }
+  ]
+}

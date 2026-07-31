@@ -7,11 +7,19 @@ Methodology, design decisions, and detailed analysis are described in the accomp
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Paper](https://img.shields.io/badge/Paper-arXiv-red)](https://arxiv.org/abs/2604.14709)
 [![Dataset](https://img.shields.io/badge/Dataset-HuggingFace-orange)](https://huggingface.co/datasets/henryen/hwe-bench)
+[![Website](https://img.shields.io/badge/Website-Leaderboard-0f766e)](https://pku-liang.github.io/hwe-bench/)
 
-## 📰 News
+## <kbd>NEWS</kbd>
+
+- **2026-07-31:** Launched the [interactive leaderboard](https://pku-liang.github.io/hwe-bench/) and updated the vendored [Harbor](https://github.com/harbor-framework/harbor) snapshot to `main@00c19fe2`. Generated tasks now explicitly prohibit external access. Added reference scores for GPT-5.6 Sol max and GLM-5.2, and re-evaluated GPT-5.5 xhigh under the updated setup.
+
+<details>
+<summary>Previous updates</summary>
 
 - **2026-04-30:** Added two new reference scores to the [results](#results): GPT-5.5 xhigh at 79.4% and Claude Opus 4.7 max at 74.6%.
 - **2026-04-26:** Updated the reference results with three new model scores in the [results](#results): Kimi K2.6 at 66.9%, DeepSeek V4 Pro at 60.4%, and DeepSeek V4 Flash at 58.3%. Kimi K2.6 was evaluated with Kimi CLI; both DeepSeek V4 models were evaluated with Claude Code using a 1M context window and max thinking effort.
+
+</details>
 
 ## Contents
 
@@ -46,7 +54,8 @@ uv run python -m hwe_bench.harness.harbor.adapter \
 # 4. Run the agent
 export CODEX_AUTH_JSON_PATH=~/.codex/auth.json
 harbor run --path tasks/hwe-bench-ibex/ \
-  -a codex -m openai/gpt-5.4 \
+  -a codex -m openai/gpt-5.5 \
+  --ak version=0.145.0 \
   --ak reasoning_effort=xhigh \
   --ak web_search=disabled \
   -k 1 -r 2 --n-concurrent 4 \
@@ -169,7 +178,8 @@ Generated tasks allow public network access during agent installation and execut
 # Codex CLI
 export CODEX_AUTH_JSON_PATH=~/.codex/auth.json
 harbor run --path tasks/hwe-bench-<repo>/ \
-  -a codex -m openai/gpt-5.4 \
+  -a codex -m openai/gpt-5.5 \
+  --ak version=0.145.0 \
   --ak reasoning_effort=xhigh \
   --ak web_search=disabled \
   -k 1 -r 2 --n-concurrent 4 \
@@ -189,7 +199,7 @@ harbor run --path tasks/hwe-bench-<repo>/ \
   --job-name hwe-<repo>-claude
 ```
 
-Recipes for Kimi and DeepSeek: see [docs/agents.md](docs/agents.md).
+Recipes for Kimi Code and OpenHands SDK: see [docs/agents.md](docs/agents.md).
 
 ### 3. Extract patches
 
@@ -215,30 +225,11 @@ The aggregate report is at `results/<job-name>/eval/final_report.json`. Per-case
 
 ## Results
 
-Scores on the 417-case benchmark, with default settings (`-k 1 -r 2`):
+<a href="https://pku-liang.github.io/hwe-bench/#leaderboard" title="Open the HWE-bench interactive leaderboard">
+  <img src="website/assets/og.png" alt="Open the HWE-bench interactive leaderboard">
+</a>
 
-![HWE-bench resolved rates](docs/assets/benchmark_results.png)
-
-Per-repository resolved rates are reported below. Cells show `resolved count (resolved %)`. Precision is file-level precision: for each generated patch, the fraction of agent-modified files that also appear in the ground-truth patch, averaged across patches. Overall scores use the full 417-case denominator; missing or empty patches are counted as unresolved.
-
-| Model | OpenTitan (245) | Ibex (35) | CVA6 (35) | Caliptra (16) | XiangShan (54) | Rocket Chip (32) | Overall (417) | Precision |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| _Proprietary_ | | | | | | | | |
-| GPT-5.5 xhigh (Codex CLI) | 181 (73.9) | 32 (91.4) | 34 (97.1) | 16 (100.0) | 43 (79.6) | 25 (78.1) | 331 (79.4) | 0.709 |
-| GPT-5.4 xhigh (Codex CLI) | 157 (64.1) | 32 (91.4) | 34 (97.1) | 15 (93.8) | 37 (68.5) | 20 (62.5) | 295 (70.7) | 0.619 |
-| Claude Opus 4.7 max (Claude Code) | 173 (70.6) | 30 (85.7) | 31 (88.6) | 16 (100.0) | 40 (74.1) | 21 (65.6) | 311 (74.6) | 0.941 |
-| Claude Opus 4.6 high (Claude Code) | 156 (63.7) | 29 (82.9) | 30 (85.7) | 14 (87.5) | 36 (66.7) | 19 (59.4) | 284 (68.1) | 0.928 |
-| Claude Sonnet 4.6 high (Claude Code) | 152 (62.0) | 29 (82.9) | 30 (85.7) | 13 (81.3) | 36 (66.7) | 18 (56.3) | 278 (66.7) | 0.916 |
-| _Open-Source_ | | | | | | | | |
-| Kimi K2.6 (Kimi CLI) | 151 (61.6) | 28 (80.0) | 30 (85.7) | 13 (81.3) | 34 (63.0) | 23 (71.9) | 279 (66.9) | 0.842 |
-| GLM 5.1 (OpenHands) | 152 (62.0) | 26 (74.3) | 28 (80.0) | 11 (68.8) | 29 (53.7) | 17 (53.1) | 263 (63.1) | 0.892 |
-| Qwen3.6 Plus (OpenHands) | 118 (48.2) | 22 (62.9) | 30 (85.7) | 9 (56.3) | 25 (46.3) | 15 (46.9) | 219 (52.5) | 0.878 |
-| DeepSeek V4 Pro (Claude Code) | 141 (57.6) | 20 (57.1) | 30 (85.7) | 10 (62.5) | 32 (59.3) | 19 (59.4) | 252 (60.4) | 0.895 |
-| DeepSeek V4 Flash (Claude Code) | 133 (54.3) | 22 (62.9) | 29 (82.9) | 14 (87.5) | 28 (51.9) | 17 (53.1) | 243 (58.3) | 0.887 |
-| DeepSeek V3.2 (OpenHands) | 116 (47.3) | 22 (62.9) | 24 (68.6) | 13 (81.3) | 28 (51.9) | 14 (43.8) | 217 (52.0) | 0.865 |
-| Kimi K2.5 (Kimi CLI) | 106 (43.3) | 19 (54.3) | 28 (80.0) | 10 (62.5) | 22 (40.7) | 14 (43.8) | 199 (47.7) | 0.859 |
-
-The paper includes additional methodology details and analysis.
+Current overall and per-repository scores, file-level precision, estimated token-equivalent cost, and scaffold filters are available on the [interactive leaderboard](https://pku-liang.github.io/hwe-bench/#leaderboard).
 
 ## Adding a New Repository
 

@@ -196,6 +196,7 @@ scripts/push_docker_internal.sh
 exp/
 
 *.json
+!website/scores.json
 *.jsonl
 *.bak
 *.csv

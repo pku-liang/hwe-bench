@@ -2,7 +2,7 @@
 
 This document describes how to evaluate coding agents on HWE-bench. It covers the four agent integrations that ship with reference recipes, the flags that control a `harbor run`, and the scoring workflow that turns a Harbor job into a final resolved/unresolved count.
 
-Skim the README first for the Quick Start and installation. This document assumes the repository is cloned, `uv sync` has run, Harbor is installed (`uv tool install --editable ./deps/harbor`), the benchmark JSONLs are under `datasets/`, and per-PR Docker images have been pulled (or built) for the repository you plan to evaluate.
+Skim the README first for the Quick Start and installation. This document assumes the repository is cloned, `uv sync` has run, Harbor is installed (`uv tool install --editable ./deps/harbor --force`), the benchmark JSONLs are under `datasets/`, and per-PR Docker images have been pulled (or built) for the repository you plan to evaluate.
 
 ## Prerequisites
 
@@ -45,7 +45,8 @@ Codex authenticates through a ChatGPT Pro/Plus login stored in `~/.codex/auth.js
 ```bash
 export CODEX_AUTH_JSON_PATH=~/.codex/auth.json
 harbor run --path tasks/hwe-bench-<repo>/ \
-  -a codex -m openai/gpt-5.4 \
+  -a codex -m openai/gpt-5.5 \
+  --ak version=0.145.0 \
   --ak reasoning_effort=xhigh \
   --ak web_search=disabled \
   -k 1 -r 2 --n-concurrent 4 \
@@ -86,35 +87,49 @@ Kimi Code authenticates against the **Kimi Code** subscription plan (<https://ww
 ```bash
 export KIMI_MODEL_API_KEY=sk-kimi-xxxxx
 harbor run --path tasks/hwe-bench-<repo>/ \
-  -a kimi-code -m kimi-for-coding \
+  -a kimi-code -m k3 \
+  --ak version=0.31.0 \
   --ae KIMI_MODEL_API_KEY="$KIMI_MODEL_API_KEY" \
   --ae KIMI_MODEL_BASE_URL=https://api.kimi.com/coding/v1 \
-  --ae KIMI_MODEL_MAX_CONTEXT_SIZE=262144 \
+  --ae KIMI_MODEL_MAX_CONTEXT_SIZE=1048576 \
+  --ae KIMI_MODEL_CAPABILITIES=thinking,always_thinking,image_in,video_in,tool_use \
+  --ae KIMI_MODEL_THINKING_EFFORT=max \
+  --ae KIMI_LOOP_MAX_STEPS_PER_TURN=500 \
+  --ae KIMI_MODEL_TEMPERATURE=1.0 \
+  --ae KIMI_MODEL_TOP_P=0.95 \
   -k 1 -r 2 --n-concurrent 2 \
   --agent-setup-timeout-multiplier 3.0 \
   --job-name hwe-<repo>-kimi
 ```
 
-The model identifier `kimi-for-coding` selects the current coding model exposed by the subscription service; it does not pin a specific model snapshot. Harbor's `kimi-code` adapter supplies `-m` as `KIMI_MODEL_NAME`, while the `KIMI_MODEL_*` variables provide the key, endpoint, and 262k-token context directly to the Kimi Code CLI. Do not pass the old `kimi/kimi-for-coding` provider-qualified alias or rely on `KIMI_API_KEY`: those belong to the previous `kimi-cli` configuration path.
+This recipe selects K3 with max thinking effort, a declared 1M-token context, and a 500-step turn limit. Harbor's `kimi-code` adapter supplies `-m` as `KIMI_MODEL_NAME`, while the `KIMI_MODEL_*` variables configure the key, endpoint, model capabilities, and sampling parameters directly in Kimi Code. The coding endpoint requires `top_p=0.95` for K3; `1.0` is rejected. Do not pass a provider-qualified model alias or rely on `KIMI_API_KEY`: the adapter expects the subscription key in `KIMI_MODEL_API_KEY`.
 
-### DeepSeek V3.2 via OpenHands SDK
+### GLM-5.2 via OpenHands SDK
 
-OpenHands SDK is a model-agnostic agent runtime; HWE-bench uses it for backends that do not ship a dedicated CLI. DeepSeek authenticates through `LLM_API_KEY`, which OpenHands routes via LiteLLM:
+OpenHands SDK is a model-agnostic agent runtime; HWE-bench uses it for backends that do not ship a dedicated CLI. GLM-5.2 authenticates through `LLM_API_KEY`, which OpenHands routes via LiteLLM:
 
 ```bash
-export LLM_API_KEY=$DEEPSEEK_API_KEY
+export LLM_API_KEY=$ZAI_API_KEY
+export LLM_BASE_URL=https://api.z.ai/api/paas/v4
+unset LLM_TEMPERATURE
 harbor run --path tasks/hwe-bench-<repo>/ \
-  -a openhands-sdk -m deepseek/deepseek-reasoner \
+  -a openhands-sdk -m zai/glm-5.2 \
+  --ak version=1.36.1 \
   --ak max_iterations=500 \
+  --ak max_input_tokens=1000000 \
+  --ak max_output_tokens=131072 \
   --ak enable_condenser=true \
   --ak condenser_max_size=240 \
   --ak condenser_keep_first=2 \
+  --ae LLM_API_KEY="$LLM_API_KEY" \
+  --ae LLM_BASE_URL="$LLM_BASE_URL" \
+  --ae 'LITELLM_EXTRA_BODY={"thinking":{"type":"enabled"},"reasoning_effort":"max","max_tokens":131072}' \
   -k 1 -r 2 --n-concurrent 4 \
   --agent-setup-timeout-multiplier 3.0 \
-  --job-name hwe-<repo>-deepseek
+  --job-name hwe-<repo>-glm52
 ```
 
-DeepSeek V3.2 has a 128k input / 64k output context budget. The three condenser kwargs enable event-count-based compression after 240 events while retaining the first two. OpenHands leaves the condenser disabled when these arguments are omitted. If `LLM_BASE_URL` is exported on the host, OpenHands redirects DeepSeek traffic there; unset it before using the provider endpoint.
+LiteLLM does not currently provide GLM-5.2 context metadata, so the recipe passes the 1M input and 128K output limits explicitly. Keep `max_tokens=131072` in `LITELLM_EXTRA_BODY`: the Z.AI provider uses that request field for the output limit. The three condenser kwargs enable event-count-based compression after 240 events while retaining the first two; OpenHands leaves the condenser disabled when they are omitted.
 
 ## Flags worth understanding
 
@@ -169,9 +184,12 @@ export CLAUDE_CODE_OAUTH_TOKEN=<your-token>
 harbor run --path tasks/hwe-bench-ibex/ \
   -a claude-code -m anthropic/claude-sonnet-4-6 \
   --ak max_turns=500 --ak reasoning_effort=high \
+  --ak "disallowed_tools=WebSearch,WebFetch" \
   --ae CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
   --ae ANTHROPIC_API_KEY= \
+  --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 \
   -k 1 -r 2 --n-concurrent 4 \
+  --agent-setup-timeout-multiplier 2.0 \
   --job-name hwe-ibex-sonnet-smoke
 ```
 
