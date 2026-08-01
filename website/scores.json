@@ -138,15 +138,15 @@
       "precision": 0.895
     },
     {
-      "name": "DeepSeek V4 Flash",
+      "name": "DeepSeek V4 Flash 0731",
       "effort": "max",
       "vendor": "deepseek",
-      "agent": "Claude Code",
+      "agent": "OpenHands SDK",
       "group": "open-source",
-      "resolved": { "opentitan": 133, "ibex": 22, "cva6": 29, "caliptra": 14, "xiangshan": 28, "rocketchip": 17 },
-      "overall": 243,
-      "costs": 12.26,
-      "precision": 0.887
+      "resolved": { "opentitan": 176, "ibex": 28, "cva6": 32, "caliptra": 16, "xiangshan": 41, "rocketchip": 26 },
+      "overall": 319,
+      "costs": 39.76,
+      "precision": 0.834
     },
     {
       "name": "DeepSeek V3.2",
