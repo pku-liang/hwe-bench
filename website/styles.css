@@ -205,7 +205,7 @@ section h2 {
 
 .chart-scale {
   display: grid;
-  grid-template-columns: 200px 1fr 118px;
+  grid-template-columns: 250px minmax(0, 1fr) 118px;
   gap: 14px;
   margin-bottom: 6px;
 }
@@ -489,7 +489,7 @@ tr.group-row td {
 
 .chart-row {
   display: grid;
-  grid-template-columns: 200px 1fr 118px;
+  grid-template-columns: 250px minmax(0, 1fr) 118px;
   align-items: center;
   gap: 14px;
   min-height: 26px;
