@@ -39,6 +39,22 @@ from hwe_bench.utils import docker_util
 from hwe_bench.utils.args_util import ArgumentParser
 from hwe_bench.utils.logger import setup_logger
 
+# Scoring container limit for tasks whose test needs more than docker_util.run's default 1800 s: five
+# rocket-chip scripts give sbt 3600 s to fetch dependencies before the test runs, and rocket-chip 2036 and
+# opentitan 14681 carry their own 3600 s limits.
+SCORING_TIMEOUT_SECONDS = dict.fromkeys(
+    [
+        "chipsalliance/rocket-chip:pr-177",
+        "chipsalliance/rocket-chip:pr-387",
+        "chipsalliance/rocket-chip:pr-1493",
+        "chipsalliance/rocket-chip:pr-1761",
+        "chipsalliance/rocket-chip:pr-2036",
+        "chipsalliance/rocket-chip:pr-2167",
+        "lowRISC/opentitan:pr-14681",
+    ],
+    4500,
+)
+
 
 def get_parser() -> ArgumentParser:
     parser = ArgumentParser(
@@ -470,6 +486,7 @@ class CliArgs:
                 output_path,
                 self.global_env,
                 volumes=volumes,
+                timeout_seconds=SCORING_TIMEOUT_SECONDS.get(instance.pr.id, 1800),
             )
 
         run_and_save_output(

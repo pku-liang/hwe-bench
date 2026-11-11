@@ -11,11 +11,12 @@ Methodology, design decisions, and detailed analysis are described in the accomp
 
 ## NEWS
 
-- **2026-07-31:** Launched the [interactive leaderboard](https://pku-liang.github.io/hwe-bench/) and updated the vendored [Harbor](https://github.com/harbor-framework/harbor) snapshot to `main@00c19fe2`. Generated tasks now explicitly prohibit external access. Added reference scores for GPT-5.6 Sol max and GLM-5.2, and re-evaluated GPT-5.5 xhigh under the updated setup.
+- **2026-11-10:** Released **HWE-bench v1.1**: revised the hidden tests of 188 tasks and the problem statements of 50, and fixed one reference patch. Re-evaluated the [leaderboard](https://pku-liang.github.io/hwe-bench/#leaderboard) with seven agents; Claude Opus 5.5 max leads at 413/417. The HuggingFace main branch now serves v1.1, and v1.0 is kept under the tag `v1.0`. [Release notes](https://pku-liang.github.io/hwe-bench/v1.1.html).
 
 <details>
 <summary>Previous updates</summary>
 
+- **2026-07-31:** Launched the [interactive leaderboard](https://pku-liang.github.io/hwe-bench/) and updated the vendored [Harbor](https://github.com/harbor-framework/harbor) snapshot to `main@00c19fe2`. Generated tasks now explicitly prohibit external access. Added reference scores for GPT-5.6 Sol max and GLM-5.2, and re-evaluated GPT-5.5 xhigh under the updated setup.
 - **2026-04-30:** Added two new reference scores to the [results](#results): GPT-5.5 xhigh at 79.4% and Claude Opus 4.7 max at 74.6%.
 - **2026-04-26:** Updated the reference results with three new model scores in the [results](#results): Kimi K2.6 at 66.9%, DeepSeek V4 Pro at 60.4%, and DeepSeek V4 Flash at 58.3%. Kimi K2.6 was evaluated with Kimi CLI; both DeepSeek V4 models were evaluated with Claude Code using a 1M context window and max thinking effort.
 
@@ -124,6 +125,12 @@ The repository-specific JSONL files are:
 
 `datasets/hwe_bench_full.jsonl` contains all 417 cases for analysis and aggregate loading. Use the repository-specific files when running evaluations.
 
+The main branch of the dataset holds v1.1. To reproduce results reported on v1.0, including those in the paper, download the `v1.0` tag instead:
+
+```bash
+hf download henryen/hwe-bench --repo-type dataset --revision v1.0 --local-dir datasets-v1.0/
+```
+
 ### Docker Images
 
 Per-PR Docker images are published at `ghcr.io/pku-liang`. Pull images for one repository at a time:
@@ -166,7 +173,7 @@ uv run python -m hwe_bench.harness.harbor.adapter \
   --output tasks/hwe-bench-<repo>/
 ```
 
-Re-run the adapter whenever per-PR Docker images are rebuilt; task `test.sh` files embed the image's base-commit SHA, which changes across rebuilds.
+Re-run the adapter whenever per-PR Docker images are rebuilt; task `test.sh` files embed the image's base-commit SHA, which changes across rebuilds. Also re-run it after switching dataset versions, since task directories embed each task's problem statement and reference patch.
 
 ### 2. Run the agent
 
@@ -229,7 +236,7 @@ The aggregate report is at `results/<job-name>/eval/final_report.json`. Per-case
   <img src="website/assets/og.png" alt="Open the HWE-bench interactive leaderboard">
 </a>
 
-Current overall and per-repository scores, file-level precision, estimated token-equivalent cost, and scaffold filters are available on the [interactive leaderboard](https://pku-liang.github.io/hwe-bench/#leaderboard).
+Overall and per-repository scores, file-level precision, estimated token-equivalent cost, and scaffold filters for v1.1 and v1.0 are available on the [interactive leaderboard](https://pku-liang.github.io/hwe-bench/#leaderboard). What changed in v1.1 is described in the [release notes](https://pku-liang.github.io/hwe-bench/v1.1.html).
 
 ## Adding a New Repository
 

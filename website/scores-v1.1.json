@@ -1,0 +1,100 @@
+{
+  "benchmark": {
+    "name": "HWE-bench",
+    "version": "v1.1",
+    "total": 417,
+    "repos": [
+      { "id": "opentitan", "name": "OpenTitan", "cases": 245 },
+      { "id": "ibex", "name": "Ibex", "cases": 35 },
+      { "id": "cva6", "name": "CVA6", "cases": 35 },
+      { "id": "caliptra", "name": "Caliptra", "cases": 16 },
+      { "id": "xiangshan", "name": "XiangShan", "cases": 54 },
+      { "id": "rocketchip", "name": "Rocket Chip", "cases": 32 }
+    ]
+  },
+  "models": [
+    {
+      "name": "Claude Opus 5.5",
+      "effort": "max",
+      "agent": "Claude Code",
+      "vendor": "anthropic",
+      "group": "proprietary",
+      "resolved": { "opentitan": 241, "ibex": 35, "cva6": 35, "caliptra": 16, "xiangshan": 54, "rocketchip": 32 },
+      "overall": 413,
+      "costs": 5110.22,
+      "tokens": { "input": 475659934, "cached": 4846998370, "output": 87632375 },
+      "precision": 0.732
+    },
+    {
+      "name": "GPT-6.1 Sol",
+      "effort": "max",
+      "agent": "Codex CLI",
+      "vendor": "openai",
+      "group": "proprietary",
+      "resolved": { "opentitan": 241, "ibex": 34, "cva6": 34, "caliptra": 16, "xiangshan": 52, "rocketchip": 28 },
+      "overall": 405,
+      "costs": 197.27,
+      "tokens": { "input": 36701256, "cached": 591154816, "output": 6474862 },
+      "precision": 0.68
+    },
+    {
+      "name": "GPT-6 Astra",
+      "effort": "max",
+      "agent": "Codex CLI",
+      "vendor": "openai",
+      "group": "proprietary",
+      "resolved": { "opentitan": 242, "ibex": 34, "cva6": 34, "caliptra": 16, "xiangshan": 52, "rocketchip": 27 },
+      "overall": 405,
+      "costs": 1094.72,
+      "tokens": { "input": 33283194, "cached": 498176768, "output": 5274186 },
+      "precision": 0.671
+    },
+    {
+      "name": "GPT-6 Sol",
+      "effort": "max",
+      "agent": "Codex CLI",
+      "vendor": "openai",
+      "group": "proprietary",
+      "resolved": { "opentitan": 229, "ibex": 34, "cva6": 34, "caliptra": 16, "xiangshan": 50, "rocketchip": 27 },
+      "overall": 390,
+      "costs": 304.23,
+      "tokens": { "input": 34820288, "cached": 794252160, "output": 7573545 },
+      "precision": 0.656
+    },
+    {
+      "name": "Kimi K3.1 Pro",
+      "effort": "max",
+      "agent": "Kimi Code",
+      "vendor": "moonshot",
+      "group": "open-source",
+      "resolved": { "opentitan": 231, "ibex": 31, "cva6": 33, "caliptra": 16, "xiangshan": 47, "rocketchip": 28 },
+      "overall": 386,
+      "costs": 483.17,
+      "tokens": { "input": 46433990, "cached": 1486942128, "output": 9291648 },
+      "precision": 0.815
+    },
+    {
+      "name": "DeepSeek V4.1 Flash 1017",
+      "effort": "max",
+      "agent": "DeepSeek Harness",
+      "vendor": "deepseek",
+      "group": "open-source",
+      "resolved": { "opentitan": 231, "ibex": 30, "cva6": 34, "caliptra": 16, "xiangshan": 47, "rocketchip": 28 },
+      "overall": 386,
+      "costs": 112.53,
+      "tokens": { "input": 125525362, "cached": 7948892800, "output": 102640538 },
+      "precision": 0.875
+    },
+    {
+      "name": "GLM 5.3",
+      "agent": "OpenCode",
+      "vendor": "zhipu",
+      "group": "open-source",
+      "resolved": { "opentitan": 227, "ibex": 27, "cva6": 33, "caliptra": 16, "xiangshan": 45, "rocketchip": 29 },
+      "overall": 377,
+      "costs": 1465.25,
+      "tokens": { "input": 173285457, "cached": 4161179241, "output": 31987189 },
+      "precision": 0.847
+    }
+  ]
+}

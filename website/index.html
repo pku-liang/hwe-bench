@@ -21,6 +21,8 @@
     <div class="nav-links">
       <a href="#overview" class="nav-item">Overview</a>
       <a href="#leaderboard" class="nav-leaderboard">Leaderboard</a>
+      <a href="#cost" class="nav-item">Cost</a>
+      <a href="v1.1.html" class="nav-item">Release Notes</a>
       <a href="#citation" class="nav-item">Citation</a>
       <a class="nav-ext" href="https://github.com/pku-liang/hwe-bench">GitHub ↗</a>
     </div>
@@ -29,6 +31,7 @@
 
 <header class="site-header" id="top">
   <div class="wrap">
+    <a class="announce" href="v1.1.html"><span class="announce-tag">New</span>HWE-Bench v1.1: revised tests for 208 tasks and an updated leaderboard<span aria-hidden="true">→</span></a>
     <h1>HWE-Bench</h1>
     <p class="tagline">A benchmark for evaluating LLM agents on real-world hardware bug repair. 417 cases from six open-source RTL projects, each verified by simulation.</p>
     <nav class="links">
@@ -65,9 +68,16 @@
   <div class="wrap wrap-wide">
     <section id="leaderboard">
       <div class="section-head">
-        <h2>Leaderboard</h2>
+        <div class="section-title">
+          <h2>Leaderboard</h2>
+          <p id="version-note" class="version-note"></p>
+        </div>
         <span class="table-hint">Repository scores →</span>
         <div class="controls">
+          <div class="control-group">
+            <span class="control-label">Version</span>
+            <div id="version-mode" class="segmented"></div>
+          </div>
           <div class="control-group">
             <span class="control-label">View</span>
             <div id="view-mode" class="segmented"></div>
@@ -94,6 +104,42 @@
   </div>
 
   <div class="wrap">
+    <section id="cost">
+      <div class="section-title">
+        <h2>Cost vs. Resolved Rate</h2>
+        <p id="scatter-note" class="version-note"></p>
+      </div>
+      <div id="scatter" class="scatter"></div>
+      <div class="legend scatter-legend">
+        <span class="legend-item"><span class="swatch dot proprietary"></span>Proprietary</span>
+        <span class="legend-item"><span class="swatch dot open-source"></span>Open-Source</span>
+        <span class="legend-item"><span class="swatch quadrant"></span>Most attractive quadrant</span>
+      </div>
+    </section>
+
+    <section id="tokens">
+      <div class="section-title">
+        <h2>Token Usage</h2>
+        <p id="tokens-note" class="version-note"></p>
+      </div>
+      <div class="token-chart">
+        <div class="token-head">
+          <h3>Input tokens</h3>
+          <div class="legend scatter-legend">
+            <span class="legend-item"><span class="swatch dot tb-input"></span>Uncached input</span>
+            <span class="legend-item"><span class="swatch dot tb-cached"></span>Cached input</span>
+          </div>
+        </div>
+        <div id="tokens-input" class="token-bars"></div>
+      </div>
+      <div class="token-chart">
+        <div class="token-head">
+          <h3>Output tokens, including reasoning</h3>
+        </div>
+        <div id="tokens-output" class="token-bars"></div>
+      </div>
+    </section>
+
     <section id="citation">
       <h2>Citation</h2>
       <div class="bibtex-wrap">

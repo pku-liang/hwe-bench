@@ -1,4 +1,10 @@
-const state = { agent: "All", sortKey: null, sortDir: -1, display: "pct", view: "rank" };
+const VERSIONS = [
+  { id: "v1.1", file: "scores-v1.1.json", note: "November 2026 · 208 tasks revised", notes: "v1.1.html" },
+  { id: "v1.0", file: "scores-v1.0.json", note: "Original release · April–July 2026" },
+];
+
+const state = { version: VERSIONS[0].id, agent: "All", sortKey: null, sortDir: -1, display: "pct", view: "rank" };
+const scoresByVersion = {};
 
 const GROUP_LABELS = { proprietary: "Proprietary", "open-source": "Open-Source" };
 const DISPLAY_MODES = [
@@ -84,6 +90,344 @@ function renderChart(data) {
       el("div", "chart-value", `${fmtPct(m.overall, data.benchmark.total)}% · ${m.overall}/${data.benchmark.total}`)
     );
     chart.appendChild(row);
+  }
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function svgEl(tag, attrs, parent) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+  parent.appendChild(node);
+  return node;
+}
+
+function median(values) {
+  const s = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+}
+
+function overlaps(a, b) {
+  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+}
+
+// Label positions tried around each dot, in order: [dx, dy, text-anchor].
+const LABEL_SPOTS = [
+  [9, 4, "start"], [-9, 4, "end"], [0, -12, "middle"], [0, 21, "middle"],
+  [7, -8, "start"], [-7, -8, "end"], [7, 18, "start"], [-7, 18, "end"],
+];
+
+// Cost against resolved rate in the style of Artificial Analysis: log-scale cost, the cheaper-and-better
+// quadrant (split at the medians) shaded. Axes and quadrant come from every model of the version, so they
+// stay put when the scaffold filter hides points.
+function renderScatter(data) {
+  const box = document.getElementById("scatter");
+  box.textContent = "";
+  const total = data.benchmark.total;
+  document.getElementById("scatter-note").textContent =
+    `${state.version} · Cost of one run over all ${total} tasks at standard list prices`;
+
+  const all = data.models;
+  const shown = sortedByOverall(all).filter((m) => state.agent === "All" || m.agent === state.agent);
+  const W = box.clientWidth;
+  const narrow = W < 560;
+  const H = narrow ? 340 : 440;
+  const pad = { top: 12, right: 16, bottom: 48, left: 58 };
+  const right = W - pad.right;
+  const bottom = H - pad.bottom;
+
+  const logs = all.map((m) => Math.log10(m.costs));
+  const x0 = Math.min(...logs) - 0.2;
+  const x1 = Math.max(...logs) + 0.2;
+  const x = (cost) => pad.left + ((Math.log10(cost) - x0) / (x1 - x0)) * (right - pad.left);
+  const rates = all.map((m) => pct(m.overall, total));
+  const span = Math.max(...rates) - Math.min(...rates);
+  const step = span > 25 ? 10 : 5;
+  const padY = Math.max(1, span * 0.06);
+  const y0 = Math.min(...rates) - padY;
+  const y1 = Math.min(100, Math.max(...rates) + padY);
+  const y = (rate) => pad.top + ((y1 - rate) / (y1 - y0)) * (bottom - pad.top);
+
+  const svg = svgEl("svg", {
+    width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: "group",
+    "aria-label": "Scatter plot of resolved rate against total cost by model",
+  }, box);
+
+  const qx = x(median(all.map((m) => m.costs)));
+  const qy = y(median(rates));
+  svgEl("rect", { x: pad.left, y: pad.top, width: qx - pad.left, height: qy - pad.top, class: "sc-quadrant" }, svg);
+
+  // Point labels may run into the left margin, but not over the y-axis title or tick labels.
+  const obstacles = [];
+  svgEl("line", { x1: pad.left, x2: right, y1: bottom, y2: bottom, class: "sc-grid" }, svg);
+  for (let t = Math.ceil(y0 / step) * step; t <= y1; t += step) {
+    svgEl("line", { x1: pad.left, x2: right, y1: y(t), y2: y(t), class: "sc-grid" }, svg);
+    const tick = svgEl("text", { x: pad.left - 8, y: y(t) + 3.5, "text-anchor": "end", class: "sc-tick" }, svg);
+    tick.textContent = `${t}%`;
+    obstacles.push(tick.getBBox());
+  }
+  for (let e = Math.floor(x0); e <= Math.ceil(x1); e++) {
+    for (const k of narrow ? [1, 3] : [1, 2, 5]) {
+      const v = k * 10 ** e;
+      if (Math.log10(v) < x0 || Math.log10(v) > x1) continue;
+      svgEl("line", { x1: x(v), x2: x(v), y1: pad.top, y2: bottom, class: "sc-grid" }, svg);
+      svgEl("text", { x: x(v), y: bottom + 16, "text-anchor": "middle", class: "sc-tick" }, svg).textContent =
+        v >= 1000 ? `$${v / 1000}K` : `$${v}`;
+    }
+  }
+  svgEl("text", { x: (pad.left + right) / 2, y: H - 6, "text-anchor": "middle", class: "sc-axis" }, svg).textContent =
+    "Total cost (USD, log scale)";
+  const yTitle = svgEl("text", {
+    x: -(pad.top + bottom) / 2, y: 14, transform: "rotate(-90)", "text-anchor": "middle", class: "sc-axis",
+  }, svg);
+  yTitle.textContent = "Resolved rate";
+  const titleLength = yTitle.getComputedTextLength();
+  obstacles.push({ x: 0, y: (pad.top + bottom - titleLength) / 2, width: 20, height: titleLength });
+
+  const qLabel = svgEl("text", { x: pad.left + 8, y: pad.top + 17, class: "sc-quadrant-label" }, svg);
+  qLabel.textContent = "Most attractive quadrant";
+  const qBox = qLabel.getBBox();
+  if (qBox.x + qBox.width > qx - 6 || qBox.y + qBox.height > qy) qLabel.remove();
+  else obstacles.push(qBox);
+
+  const tip = el("div", "sc-tip");
+  const hideTip = () => tip.classList.remove("visible");
+  const points = shown.map((m) => ({ m, cx: x(m.costs), cy: y(pct(m.overall, total)) }));
+  for (const p of points) {
+    obstacles.push({ x: p.cx - 6, y: p.cy - 6, width: 12, height: 12 });
+    const g = svgEl("g", {
+      class: `sc-point ${p.m.group}`, tabindex: 0,
+      "aria-label": `${p.m.name}: ${fmtPct(p.m.overall, total)}% resolved, ${fmtCost(p.m.costs)}`,
+    }, svg);
+    svgEl("circle", { cx: p.cx, cy: p.cy, r: 12, class: "sc-hit" }, g);
+    svgEl("circle", { cx: p.cx, cy: p.cy, r: 5, class: "sc-dot" }, g);
+    const showTip = () => {
+      tip.textContent = "";
+      tip.appendChild(el("strong", "", `${fmtPct(p.m.overall, total)}% · ${fmtCost(p.m.costs)}`));
+      const name = el("span", "sc-tip-name");
+      nameWithEffort(name, p.m);
+      tip.appendChild(name);
+      tip.appendChild(el("span", "sc-tip-meta",
+        `${p.m.agent} · ${p.m.overall}/${total} resolved · ${fmtCost(p.m.costs / p.m.overall)} per resolved task`));
+      tip.classList.add("visible");
+      const left = p.cx + 14 + tip.offsetWidth > W ? p.cx - 14 - tip.offsetWidth : p.cx + 14;
+      tip.style.left = `${Math.max(0, Math.min(W - tip.offsetWidth, left))}px`;
+      tip.style.top = `${Math.max(0, p.cy - tip.offsetHeight / 2)}px`;
+    };
+    g.addEventListener("pointerenter", showTip);
+    g.addEventListener("focus", showTip);
+    g.addEventListener("pointerleave", hideTip);
+    g.addEventListener("blur", hideTip);
+  }
+
+  // Name each point where a spot clear of other labels, dots and the plot edge exists; the tooltip and
+  // the leaderboard table cover any point left unlabeled.
+  const labels = svgEl("g", { "aria-hidden": "true" }, svg);
+  for (const p of points) {
+    const t = svgEl("text", { class: "sc-label" }, labels);
+    t.textContent = p.m.name;
+    const spot = LABEL_SPOTS.find(([dx, dy, anchor]) => {
+      t.setAttribute("x", p.cx + dx);
+      t.setAttribute("y", p.cy + dy);
+      t.setAttribute("text-anchor", anchor);
+      const b = t.getBBox();
+      const inside = b.x >= 0 && b.x + b.width <= right && b.y >= pad.top && b.y + b.height <= bottom - 2;
+      return inside && !obstacles.some((o) => overlaps(b, o));
+    });
+    if (spot) obstacles.push(t.getBBox());
+    else t.remove();
+  }
+  box.appendChild(tip);
+}
+
+function fmtTokens(n) {
+  return n >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : `${(n / 1e6).toFixed(n >= 1e8 ? 0 : 1)}M`;
+}
+
+// Model makers' colours as Artificial Analysis draws them.
+const BRAND_COLORS = {
+  anthropic: "#cc785c", openai: "#1f1f1f", moonshot: "#047afe", deepseek: "#2243e6", zhipu: "#1c7ff8",
+};
+
+function fmtTokenTick(n) {
+  if (n === 0) return "0";
+  return n >= 1e9 ? `${+(n / 1e9).toFixed(1)}B` : `${+(n / 1e6).toFixed(0)}M`;
+}
+
+function niceStep(max, ticks) {
+  const raw = max / ticks;
+  const mag = 10 ** Math.floor(Math.log10(raw));
+  return [1, 2, 2.5, 5, 10].map((k) => k * mag).find((s) => s >= raw);
+}
+
+// Split a label into lines no wider than maxWidth, breaking only between words.
+function wrapWords(text, maxWidth) {
+  const lines = [];
+  let line = "";
+  for (const word of text.textContent.split(" ")) {
+    const candidate = line ? `${line} ${word}` : word;
+    text.textContent = candidate;
+    if (line && text.getComputedTextLength() > maxWidth) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = candidate;
+    }
+  }
+  lines.push(line);
+  return lines;
+}
+
+// A bar with rounded top corners.
+function topRoundedBar(x, y, w, h, r) {
+  r = Math.min(r, h, w / 2);
+  return `M${x},${y + h}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h}Z`;
+}
+
+// Vertical bars in the style of Artificial Analysis: one bar per model in its maker's colour, sorted by
+// value, with the value above and the maker's logo and model name below. segments(m) lists
+// [tokens, opacity] from the bottom up; sub(m) is an optional second line under the value, and
+// tipLines(m) gives the tooltip's headline and last line.
+function renderTokenBars(box, models, segments, sub, tipLines) {
+  box.textContent = "";
+  const total = (m) => segments(m).reduce((s, [v]) => s + v, 0);
+  const sorted = [...models].sort((a, b) => total(b) - total(a));
+  const W = box.clientWidth;
+  const H = W < 560 ? 270 : 300;
+  // The second line under each value only fits on wide bars; the tooltip carries it otherwise.
+  if ((W - 48) / sorted.length < 64) sub = null;
+  const pad = { top: sub ? 36 : 22, right: 4, bottom: 70, left: 44 };
+  const right = W - pad.right;
+  const bottom = H - pad.bottom;
+  const step = niceStep(total(sorted[0]), 5);
+  const yMax = Math.ceil(total(sorted[0]) / step) * step;
+  const y = (v) => bottom - (v / yMax) * (bottom - pad.top);
+
+  const svg = svgEl("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: "group" }, box);
+  for (let t = 0; t <= yMax + step / 2; t += step) {
+    svgEl("line", { x1: pad.left, x2: right, y1: y(t), y2: y(t), class: "sc-grid" }, svg);
+    svgEl("text", { x: pad.left - 8, y: y(t) + 3.5, "text-anchor": "end", class: "sc-tick" }, svg).textContent =
+      fmtTokenTick(t);
+  }
+
+  const tip = el("div", "sc-tip");
+  const band = (right - pad.left) / sorted.length;
+  const barW = Math.min(52, band * 0.62);
+  sorted.forEach((m, i) => {
+    const cx = pad.left + band * (i + 0.5);
+    const color = BRAND_COLORS[m.vendor];
+    const g = svgEl("g", { class: "tb-bar", tabindex: 0, "aria-label": `${m.name}: ${fmtTokens(total(m))}` }, svg);
+    svgEl("rect", { x: cx - band / 2, y: pad.top, width: band, height: bottom - pad.top, class: "sc-hit" }, g);
+
+    const segs = segments(m);
+    let base = 0;
+    segs.forEach(([v, opacity], k) => {
+      // A 2px surface gap separates a segment from the one below it.
+      const lower = y(base) - (k > 0 ? 2 : 0);
+      const upper = y(base + v);
+      base += v;
+      if (lower - upper < 0.5) return;
+      const d = k === segs.length - 1
+        ? topRoundedBar(cx - barW / 2, upper, barW, lower - upper, 4)
+        : `M${cx - barW / 2},${lower}V${upper}H${cx + barW / 2}V${lower}Z`;
+      svgEl("path", { d, fill: color, "fill-opacity": opacity, class: "tb-seg" }, g);
+    });
+
+    const top = y(total(m));
+    svgEl("text", { x: cx, y: top - (sub ? 19 : 7), "text-anchor": "middle", class: "tb-value" }, svg).textContent =
+      fmtTokens(total(m));
+    if (sub) {
+      svgEl("text", { x: cx, y: top - 6, "text-anchor": "middle", class: "tb-sub" }, svg).textContent = sub(m);
+    }
+
+    const logo = svgEl("g", { transform: `translate(${cx - 8},${bottom + 9})`, fill: color, color }, svg);
+    logo.innerHTML = VENDOR_ICONS[m.vendor].replace("<svg ", '<svg width="16" height="16" ');
+    const name = svgEl("text", { x: cx, y: bottom + 40, "text-anchor": "middle", class: "tb-name" }, svg);
+    name.textContent = m.name;
+    const lines = wrapWords(name, band - 6);
+    name.textContent = "";
+    lines.forEach((line, j) => {
+      svgEl("tspan", { x: cx, dy: j === 0 ? 0 : "1.2em" }, name).textContent = line;
+    });
+
+    const showTip = () => {
+      const [headline, meta] = tipLines(m);
+      tip.textContent = "";
+      tip.appendChild(el("strong", "", headline));
+      const label = el("span", "sc-tip-name");
+      nameWithEffort(label, m);
+      tip.appendChild(label);
+      tip.appendChild(el("span", "sc-tip-meta", meta));
+      tip.classList.add("visible");
+      const left = cx - tip.offsetWidth / 2;
+      tip.style.left = `${Math.max(0, Math.min(W - tip.offsetWidth, left))}px`;
+      tip.style.top = `${Math.max(0, top - tip.offsetHeight - 10)}px`;
+    };
+    const hideTip = () => tip.classList.remove("visible");
+    g.addEventListener("pointerenter", showTip);
+    g.addEventListener("focus", showTip);
+    g.addEventListener("pointerleave", hideTip);
+    g.addEventListener("blur", hideTip);
+  });
+  box.appendChild(tip);
+}
+
+// Tokens of one run over all tasks: input not served from the prompt cache, cached input, and output.
+function renderTokens(data) {
+  const section = document.getElementById("tokens");
+  section.hidden = !data.models.some((m) => m.tokens);
+  if (section.hidden) return;
+  const total = data.benchmark.total;
+  document.getElementById("tokens-note").textContent = `${state.version} · Tokens used in one run over all ${total} tasks`;
+  const models = data.models.filter((m) => state.agent === "All" || m.agent === state.agent);
+  const cachedShare = (t) => (t.cached / (t.input + t.cached)) * 100;
+  renderTokenBars(
+    document.getElementById("tokens-input"), models,
+    (m) => [[m.tokens.cached, 0.45], [m.tokens.input, 1]],
+    (m) => `${Math.round(cachedShare(m.tokens))}% cached`,
+    (m) => [
+      `${fmtTokens(m.tokens.input + m.tokens.cached)} input tokens`,
+      `${fmtTokens(m.tokens.cached)} cached (${cachedShare(m.tokens).toFixed(1)}%) · ${fmtTokens(m.tokens.input)} uncached`,
+    ]
+  );
+  renderTokenBars(
+    document.getElementById("tokens-output"), models,
+    (m) => [[m.tokens.output, 1]],
+    null,
+    (m) => [`${fmtTokens(m.tokens.output)} output tokens`, `${Math.round(m.tokens.output / total / 1000)}K per task`]
+  );
+}
+
+function renderVersion() {
+  const wrap = document.getElementById("version-mode");
+  wrap.textContent = "";
+  for (const v of VERSIONS) {
+    const btn = el("button", state.version === v.id ? "active" : "", v.id);
+    btn.type = "button";
+    btn.addEventListener("click", () => {
+      if (state.version === v.id) return;
+      state.version = v.id;
+      state.agent = "All";
+      state.sortKey = null;
+      state.sortDir = -1;
+      const url = new URL(location.href);
+      if (v.id === VERSIONS[0].id) url.searchParams.delete("version");
+      else url.searchParams.set("version", v.id);
+      history.replaceState(null, "", url);
+      render(scoresByVersion[v.id]);
+    });
+    wrap.appendChild(btn);
+  }
+
+  const v = VERSIONS.find((x) => x.id === state.version);
+  const note = document.getElementById("version-note");
+  note.textContent = `${v.id} · ${v.note}`;
+  if (v.notes) {
+    note.append(" · ");
+    const link = el("a", "", "What changed →");
+    link.href = v.notes;
+    note.appendChild(link);
   }
 }
 
@@ -267,6 +611,9 @@ function renderTable(data) {
 function render(data) {
   renderStats(data);
   renderChart(data);
+  renderScatter(data);
+  renderTokens(data);
+  renderVersion();
   renderViewMode(data);
   renderDisplayMode(data);
   renderFilters(data);
@@ -274,9 +621,26 @@ function render(data) {
 }
 
 async function main() {
-  const resp = await fetch("scores.json");
-  const data = await resp.json();
-  render(data);
+  await Promise.all(
+    VERSIONS.map(async (v) => {
+      const resp = await fetch(v.file);
+      scoresByVersion[v.id] = await resp.json();
+    })
+  );
+  const requested = new URLSearchParams(location.search).get("version");
+  if (VERSIONS.some((v) => v.id === requested)) state.version = requested;
+  render(scoresByVersion[state.version]);
+
+  // The SVG charts are drawn at the container's width: redraw them whenever it changes, including when a
+  // page loaded in a hidden or collapsed view becomes visible.
+  let chartWidth = document.getElementById("scatter").clientWidth;
+  new ResizeObserver(() => {
+    const width = document.getElementById("scatter").clientWidth;
+    if (width === chartWidth) return;
+    chartWidth = width;
+    renderScatter(scoresByVersion[state.version]);
+    renderTokens(scoresByVersion[state.version]);
+  }).observe(document.getElementById("scatter"));
 
   if (location.hash) {
     const target = document.querySelector(location.hash);

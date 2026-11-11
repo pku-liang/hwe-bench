@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HWE-Bench v1.1 Release Notes</title>
+<meta name="description" content="HWE-Bench v1.1 revises the hidden tests of 208 of its 417 hardware bug-repair tasks and re-evaluates the leaderboard.">
+<meta property="og:title" content="HWE-Bench v1.1 Release Notes">
+<meta property="og:description" content="Revised tests for 208 of 417 hardware bug-repair tasks and an updated leaderboard.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://pku-liang.github.io/hwe-bench/v1.1.html">
+<meta property="og:image" content="https://pku-liang.github.io/hwe-bench/assets/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<nav class="site-nav">
+  <div class="wrap nav-inner">
+    <a class="nav-brand" href="./">HWE-Bench</a>
+    <div class="nav-links">
+      <a href="./#overview" class="nav-item">Overview</a>
+      <a href="./#leaderboard" class="nav-leaderboard">Leaderboard</a>
+      <a href="v1.1.html" class="nav-item">Release Notes</a>
+      <a href="./#citation" class="nav-item">Citation</a>
+      <a class="nav-ext" href="https://github.com/pku-liang/hwe-bench">GitHub ↗</a>
+    </div>
+  </div>
+</nav>
+
+<header class="site-header compact" id="top">
+  <div class="wrap">
+    <h1>HWE-Bench v1.1</h1>
+    <p class="post-subtitle">More reliable hidden tests</p>
+    <p class="post-lede">HWE-Bench v1.1 revises the hidden tests of 188 tasks and the problem statements of 50, fixes one reference patch, and re-evaluates the leaderboard with seven new agents.</p>
+    <p class="post-meta">November 2026 · HWE-Bench team</p>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+    <article class="post">
+      <nav class="post-toc" aria-label="In this release">
+        <span class="post-toc-title">In this release</span>
+        <a href="#test-owned">Tests that own testbench files</a>
+        <a href="#reference-coupling">Tests tied to the reference fix</a>
+        <a href="#stronger-checks">Stronger checks</a>
+        <a href="#environment">Build environment</a>
+        <a href="#statements">Problem statements and one reference fix</a>
+        <a href="#leaderboard-v11">The new leaderboard</a>
+        <a href="#run">Run v1.1 yourself</a>
+      </nav>
+
+      <p>On the v1.0 leaderboard, the best agent, GPT-5.6 Sol with Codex CLI, resolved 333 of the 417 tasks. Agents released since then solve more, and when we looked at the tasks they still failed, the test was often the one at fault. A correct patch could fail because it was written differently from the reference fix, and a patch that left the bug in place could pass because the test never looked at the behaviour in question.</p>
+
+      <p>After v1.0 we went through every task that at least one of six frontier agents had failed, 148 in total, and decided for each whether the patch or the test was wrong. For the 269 tasks that all six passed, we checked that the patches really fixed the bug, that the test could fail at all, and that it observed the behaviour the task is about. In the end 208 tasks changed. Every revised test passes the reference fix and fails the original buggy code, and each task keeps its repository, base commit, Docker image and fail-to-pass tests.</p>
+
+      <div class="table-scroll">
+        <table class="post-table">
+          <thead>
+            <tr><th>Repository</th><th>Tasks</th><th>Revised</th><th>Test script</th><th>Statement</th><th>Reference fix</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>OpenTitan</td><td>245</td><td>157</td><td>145</td><td>35</td><td>–</td></tr>
+            <tr><td>Ibex</td><td>35</td><td>12</td><td>9</td><td>4</td><td>–</td></tr>
+            <tr><td>CVA6</td><td>35</td><td>4</td><td>4</td><td>–</td><td>–</td></tr>
+            <tr><td>Caliptra</td><td>16</td><td>2</td><td>2</td><td>–</td><td>–</td></tr>
+            <tr><td>XiangShan</td><td>54</td><td>17</td><td>12</td><td>9</td><td>1</td></tr>
+            <tr><td>Rocket Chip</td><td>32</td><td>16</td><td>16</td><td>2</td><td>–</td></tr>
+            <tr><td>Total</td><td>417</td><td>208</td><td>188</td><td>50</td><td>1</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 id="test-owned">Tests that own testbench files</h2>
+      <p>Many hidden tests bring their own testbench code: a DV top such as OpenTitan's <code>hw/ip/csrng/dv/tb.sv</code>, a Verilator harness, or a small unit test. Agents often edit the same files while they debug. In v1.0 the hidden test then ran on the agent's copy, so a leftover testbench edit could decide whether the task passed.</p>
+      <div class="post-box">
+        <span class="post-box-title">What changed</span>
+        <ul>
+          <li>Each of these 91 tests lists the files it owns and restores them from the base commit before it runs.</li>
+          <li>Changes outside those files, including every design change, are tested as the agent made them.</li>
+        </ul>
+      </div>
+
+      <h2 id="reference-coupling">Tests tied to the reference fix</h2>
+      <p>Some tests depended on how the reference fix was written. They referred to internal signals by name, matched exact source text, or replaced design macros with simpler stubs. A correct fix written another way then failed to compile or elaborate.</p>
+      <p>In OpenTitan #12505, for example, the test replaced the <code>ASSERT</code> macro with a stub that took two arguments. GPT-6.1 Sol and GPT-6 Astra both fixed the bug and added an assertion that passes a clock argument, which the real macro accepts, and VCS stopped with a macro argument error. In OpenTitan #10732 the test switched off an assertion by its hierarchical name. Claude Opus 5.5's fix no longer declared that assertion, so the name did not resolve and VCS reported a cross-module reference error.</p>
+      <div class="post-box">
+        <span class="post-box-title">What changed</span>
+        <ul>
+          <li>These 60 tests check the behaviour the task asks for and no longer depend on the reference fix's signal names, source text or macro use.</li>
+          <li>The macro stub in #12505 takes the same optional clock and reset arguments as the real one, and #10732 switches the assertion off only when the patched design still declares it.</li>
+        </ul>
+      </div>
+
+      <h2 id="stronger-checks">Stronger checks</h2>
+      <p>Other tests were too weak. They passed patches that did not fix the bug, or never exercised the behaviour the task describes. For the tasks all six agents had passed, we read each patch against the task, and where one looked wrong we added a check for the described behaviour and reran every patch. In 29 tasks at least one patch failed the new check.</p>
+      <div class="post-box">
+        <span class="post-box-title">What changed</span>
+        <ul>
+          <li>These 33 tests now observe the described behaviour directly, so a patch that leaves the bug in place fails.</li>
+        </ul>
+      </div>
+
+      <h2 id="environment">Build environment</h2>
+      <p>A few tasks failed for reasons unrelated to the patch. Two OpenTitan builds broke with newer releases of <code>setuptools_scm</code>, and five Rocket Chip tests ran out of time while sbt was still downloading dependencies.</p>
+      <div class="post-box">
+        <span class="post-box-title">What changed</span>
+        <ul>
+          <li>OpenTitan #14681 and #16176 pin <code>setuptools_scm</code> 6.4.2.</li>
+          <li>Rocket Chip #177, #387, #1493, #1761 and #2167 raise the test's time limit from 1200 s to 3600 s.</li>
+          <li>The evaluator gives seven tasks a 4500 s container limit instead of the default 1800 s: Rocket Chip #177, #387, #1493, #1761, #2036 and #2167, and OpenTitan #14681.</li>
+        </ul>
+      </div>
+
+      <h2 id="statements">Problem statements and one reference fix</h2>
+      <p>For 50 tasks, the v1.0 statement left open an interface or behaviour that the hidden test checks, or described it differently. These statements now specify it.</p>
+      <p>The reference fix of XiangShan #2781 used to change the fudian floating-point library. It now carries the rounding mode through XiangShan's own bundles, and the statement notes that changes under <code>fudian/</code> are not evaluated.</p>
+
+      <h2 id="leaderboard-v11">The new leaderboard</h2>
+      <p>We evaluated seven agents on v1.1, six of them at max reasoning effort. Claude Opus 5.5 with Claude Code is #1 at 99.0% (413/417), followed by GPT-6.1 Sol and GPT-6 Astra with Codex CLI at 97.1%. Kimi K3.1 Pro and DeepSeek V4.1 Flash 1017 lead the open-source agents at 92.6%.</p>
+      <p>Precision and cost are computed as in v1.0. The leaderboard now also plots each agent's cost against its resolved rate: GPT-6.1 Sol resolves 405 tasks for $197, and DeepSeek V4.1 Flash 1017 resolves 386 for $113.</p>
+      <p><a href="./#leaderboard">View the v1.1 leaderboard</a> · <a href="./?version=v1.0#leaderboard">Compare with v1.0 →</a></p>
+
+      <h2 id="run">Run v1.1 yourself</h2>
+      <p>The <a href="https://huggingface.co/datasets/henryen/hwe-bench">Hugging Face dataset</a> serves v1.1 from its main branch, with the same files and fields as before. Regenerate the Harbor task directories from the v1.1 files, since they carry the problem statements, and use the evaluator from the current <a href="https://github.com/pku-liang/hwe-bench">repository</a>, which includes the 4500 s limit above. To reproduce v1.0 results, including those in the paper, download the <code>v1.0</code> tag:</p>
+      <pre>hf download henryen/hwe-bench --repo-type dataset --revision v1.0 --local-dir datasets-v1.0/</pre>
+    </article>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <span>HWE-Bench &middot; Apache 2.0</span>
+  </div>
+</footer>
+</body>
+</html>
