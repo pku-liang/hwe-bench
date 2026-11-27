@@ -95,6 +95,18 @@
       "costs": 1465.25,
       "tokens": { "input": 173285457, "cached": 4161179241, "output": 31987189 },
       "precision": 0.847
+    },
+    {
+      "name": "Kimi K3",
+      "effort": "max",
+      "agent": "Kimi Code",
+      "vendor": "moonshot",
+      "group": "open-source",
+      "resolved": { "opentitan": 222, "ibex": 31, "cva6": 30, "caliptra": 15, "xiangshan": 43, "rocketchip": 22 },
+      "overall": 363,
+      "costs": 1571.06,
+      "tokens": { "input": 53224089, "cached": 3470394825, "output": 24684475 },
+      "precision": 0.845
     }
   ]
 }

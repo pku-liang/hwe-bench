@@ -11,6 +11,7 @@ Methodology, design decisions, and detailed analysis are described in the accomp
 
 ## NEWS
 
+- **2026-11-27:** Added **Kimi K3** (`max` reasoning effort, Kimi Code) to the v1.1 [leaderboard](https://pku-liang.github.io/hwe-bench/#leaderboard) at 363/417 (87.1%).
 - **2026-11-10:** Released **HWE-bench v1.1**: revised the hidden tests of 188 tasks and the problem statements of 50, and fixed one reference patch. Re-evaluated the [leaderboard](https://pku-liang.github.io/hwe-bench/#leaderboard) with seven agents; Claude Opus 5.5 max leads at 413/417. The HuggingFace main branch now serves v1.1, and v1.0 is kept under the tag `v1.0`. [Release notes](https://pku-liang.github.io/hwe-bench/v1.1.html).
 
 <details>
